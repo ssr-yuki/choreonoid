@@ -231,7 +231,7 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
     }
 
     // parses the robot structure ('robot' tag)
-    xml_node robot = doc.child(ROBOT);
+    const xml_node& robot = doc.child(ROBOT);
     auto linkNodes = robot.children(LINK);
     auto jointNodes = robot.children(JOINT);
 

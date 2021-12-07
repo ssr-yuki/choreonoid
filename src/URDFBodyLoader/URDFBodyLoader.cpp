@@ -232,6 +232,7 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
         if (!result) {
             os() << "Error: parsing XML failed: " << result.description()
                  << endl;
+            return false;
         }
     } else {
         // loads a URDF

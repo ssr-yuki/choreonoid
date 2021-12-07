@@ -146,7 +146,7 @@ public:
     bool load(Body* body, const string& filename);
 
 private:
-    int jointCounter_;
+    int jointCounter_ = 0;
     SceneLoader sceneLoader_;
     ROSPackageSchemeHandler ROSPackageSchemeHandler_;
 
@@ -176,10 +176,8 @@ URDFBodyLoader::URDFBodyLoader()
 
 
 URDFBodyLoader::Impl::Impl()
-{
-    os_ = &nullout();
-    jointCounter_ = 0;
-}
+    : os_(&nullout())
+{}
 
 
 URDFBodyLoader::~URDFBodyLoader()

@@ -699,17 +699,19 @@ bool URDFBodyLoader::Impl::loadJoint(
     }
 
     // 'axis' tag (optional)
-    if (jointNode.child(AXIS).empty()) {
+    const xml_node& axisNode = jointNode.child(AXIS);
+    if (axisNode.empty()) {
         child->setJointAxis(Vector3::UnitX());
     } else {
-        if (jointNode.child(AXIS).attribute(XYZ).empty()) {
+        const xml_attribute& xyzAttribute = axisNode.attribute(XYZ);
+        if (xyzAttribute.empty()) {
             os() << "Error: axis of joint '" << jointName
                  << "'is not defined while 'axis' tag is written.";
             return false;
         }
 
         Vector3 axis = Vector3::UnitX();
-        if (!toVector3(jointNode.child(AXIS).attribute(XYZ).as_string(), axis)) {
+        if (!toVector3(xyzAttribute.as_string(), axis)) {
             os() << "Error: axis of joint '" << jointName
                  << "' is written in invalid format." << endl;
             return false;
@@ -718,35 +720,38 @@ bool URDFBodyLoader::Impl::loadJoint(
     }
 
     // 'limit' tag (partially required)
-    if (jointNode.child(LIMIT).empty()) {
+    const xml_node& limitNode = jointNode.child(LIMIT);
+    if (limitNode.empty()) {
         if (jointType == REVOLUTE || jointType == PRISMATIC) {
             os() << "Error: limit of joint '" << jointName
                  << "' is not defined." << endl;
             return false;
         }
     } else {
-        const xml_node& limitNode = jointNode.child(LIMIT);
         // 'lower' and 'upper' attributes (optional, default: 0.0)
         if (jointType == REVOLUTE || jointType == PRISMATIC) {
             double lower = 0.0, upper = 0.0;
-            if (!limitNode.attribute(LOWER).empty()) {
-                lower = limitNode.attribute(LOWER).as_double();
+            const xml_attribute& lowerAttribute = limitNode.attribute(LOWER);
+            if (!lowerAttribute.empty()) {
+                lower = lowerAttribute.as_double();
             }
-            if (!limitNode.attribute(UPPER).empty()) {
-                upper = limitNode.attribute(UPPER).as_double();
+            const xml_attribute& upperAttribute = limitNode.attribute(UPPER);
+            if (!upperAttribute.empty()) {
+                upper = upperAttribute.as_double();
             }
             child->setJointRange(lower, upper);
         }
         // 'velocity' and 'effort' attributes (required)
         if (jointType == REVOLUTE || jointType == PRISMATIC
             || jointType == CONTINUOUS) {
-            if (limitNode.attribute(VELOCITY).empty()) {
+            const xml_attribute& velocityAttribute = limitNode.attribute(
+                VELOCITY);
+            if (velocityAttribute.empty()) {
                 os() << "Error: velocity limit of joint '" << jointName
                      << "' is not defined." << endl;
                 return false;
             }
-            const double velocityLimit = limitNode.attribute(VELOCITY)
-                                             .as_double();
+            const double velocityLimit = velocityAttribute.as_double();
             if (velocityLimit < 0.0) {
                 os() << "Error: velocity limit of joint '" << jointName
                      << "' have to be positive." << endl;

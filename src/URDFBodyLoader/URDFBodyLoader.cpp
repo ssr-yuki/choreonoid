@@ -14,6 +14,7 @@
 #include <cnoid/Body>
 #include <cnoid/BodyLoader>
 #include <cnoid/EigenUtil>
+#include <cnoid/ExecutablePath>
 #include <cnoid/MeshGenerator>
 #include <cnoid/NullOut>
 #include <cnoid/SceneLoader>
@@ -216,7 +217,7 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
                       filename.end() - suffix.size())) {
         // parses and reads a xacro-formatted URDF
         char buffer[128];
-        const string command = "xacro " + filename;
+        const string command = "python3 " + pluginDir() + "/python/cnoid/cnoid-xacro.py " + filename;
         std::string urdf_content;
         FILE* pipe = popen(command.data(), "r");
         if (!pipe) {

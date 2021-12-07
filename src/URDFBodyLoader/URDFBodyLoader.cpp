@@ -114,6 +114,28 @@ public:
 }  // namespace
 
 namespace cnoid {
+
+bool toVector4(const std::string& s, Vector4& out_v)
+{
+    const char* nptr = s.c_str();
+    char* endptr;
+    for (int i = 0; i < out_v.rows(); ++i) {
+        out_v[i] = strtod(nptr, &endptr);
+        if (endptr == nptr) {
+            return false;
+        }
+        nptr = endptr;
+        while (isspace(*nptr)) {
+            nptr++;
+        }
+        if (*nptr == ',') {
+            nptr++;
+        }
+    }
+    return true;
+}
+
+
 class URDFBodyLoader::Impl
 {
 public:
@@ -141,6 +163,7 @@ private:
     void printReadingInertiaTagError(const string& attribute_name);
     bool readInertiaTag(const xml_node& inertiaNode, Matrix3& inertiaMatrix);
     bool readGeometryTag(const xml_node& geometryNode, SgNodePtr& mesh);
+    void setMaterialToAllShapeNodes(SgNode* node, SgMaterial* material);
     bool loadJoint(std::unordered_map<string, LinkPtr>& linkMap,
                    const xml_node& jointNode);
 };
@@ -414,11 +437,26 @@ bool URDFBodyLoader::Impl::loadVisualTag(LinkPtr& link,
     if (!readGeometryTag(geometryNode, mesh)) {
         os() << "Error: Failed to load visual geometry" << endl;
     }
+
+    // 'material' tag (optional)
+    const xml_node& materialNode = visualNode.child(MATERIAL);
+    SgMaterialPtr material = new SgMaterial;
+    if (!materialNode.empty()) {
+        const xml_node& colorNode = materialNode.child(COLOR);
+        if (!colorNode.empty()) {
+            const string rgbaString = colorNode.attribute(RGBA).as_string();
+            Vector4 rgba = Vector4::Zero();
+            if (toVector4(rgbaString, rgba)) {
+                material->setTransparency(1.0 - rgba[3]);
+                material->setDiffuseColor(Vector3(rgba[0], rgba[1], rgba[2]));
+            }
+        }
+        setMaterialToAllShapeNodes(mesh, material);
+    }
+
     SgPosTransformPtr transformation = new SgPosTransform(originalPose);
     transformation->addChild(mesh);
     link->addVisualShapeNode(transformation);
-
-    // TODO: 'material' tag
 
     return true;
 }
@@ -603,8 +641,9 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
         const string filename
             = geometryNode.child(MESH).attribute(FILENAME).as_string();
         bool isSupportedFormat = false;
-        mesh = sceneLoader_.load(ROSPackageSchemeHandler_(filename, os()),
-                                 isSupportedFormat);
+        mesh = dynamic_cast<SgNode*>(
+            sceneLoader_.load(ROSPackageSchemeHandler_(filename, os()),
+                              isSupportedFormat));
         if (!isSupportedFormat) {
             os() << "Error: format of the specified mesh file '" << filename
                  << "' is not supported." << endl;
@@ -634,6 +673,19 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
     }
 
     return true;
+}
+
+
+void URDFBodyLoader::Impl::setMaterialToAllShapeNodes(SgNode* node,
+                                                      SgMaterial* material)
+{
+    if (auto group = node->toGroupNode()) {
+        for (auto& child : *group) {
+            setMaterialToAllShapeNodes(group, material);
+        }
+    } else if (auto shape = dynamic_cast<SgShape*>(node)) {
+        shape->setMaterial(material);
+    }
 }
 
 

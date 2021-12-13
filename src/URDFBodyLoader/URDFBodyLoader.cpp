@@ -205,6 +205,10 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
 {
     pugi::xml_document doc;
 
+    // initialized members
+    jointCounter_ = 0;
+    colorMap.clear();
+
     const string suffix = ".xacro";
     if (filename.size() >= suffix.size()
         && std::equal(suffix.begin(),

@@ -679,7 +679,12 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
             = geometryNode.child(CYLINDER).attribute(LENGTH).as_double();
 
         shape->setMesh(meshGenerator.generateCylinder(radius, length));
-        mesh = shape;
+
+        SgPosTransformPtr transformation = new SgPosTransform;
+        transformation->setRotation(rotFromRpy(Vector3(M_PI / 2.0, 0.0, 0.0)));
+        transformation->translation().setZero();
+        transformation->addChild(shape);
+        mesh = transformation;
     } else if (!geometryNode.child(SPHERE).empty()) {
         if (geometryNode.child(SPHERE).attribute(RADIUS).empty()) {
             os() << "Error: sphere radius is not defined." << endl;

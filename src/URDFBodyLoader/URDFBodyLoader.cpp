@@ -161,7 +161,6 @@ private:
     bool loadVisualTag(LinkPtr& link, const xml_node& visualNode);
     bool loadCollisionTag(LinkPtr& link, const xml_node& collisionNode);
     bool readOriginTag(const xml_node& originNode,
-                       const string& elementName,
                        Vector3& translation,
                        Matrix3& rotation);
     void printReadingInertiaTagError(const string& attribute_name);
@@ -256,18 +255,16 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
         return false;
     }
 
-    // parses the robot structure ('robot' tag)
-    const xml_node& robot = doc.child(ROBOT);
-    auto linkNodes = robot.children(LINK);
-    auto jointNodes = robot.children(JOINT);
+    // gets the 'robot' tag
+    const xml_node& robotNode = doc.child(ROBOT);
 
     // creates a color dictionary before parsing the robot model
-    auto materialNodes = robot.children(MATERIAL);
+    auto materialNodes = robotNode.children(MATERIAL);
     createColorMap(materialNodes);
 
     // creates a link dictionary by loading all links for tree construction
-    std::unordered_map<string, LinkPtr> linkMap;
-    linkMap.reserve(boost::size(linkNodes));
+    auto linkNodes = robotNode.children(LINK);
+    std::unordered_map<string, LinkPtr> linkMap(boost::size(linkNodes));
 
     // loads all links
     for (xml_node linkNode : linkNodes) {
@@ -284,8 +281,8 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
     }
 
     // creates a joint dictionary to check independence of joint names
-    std::unordered_map<string, int> jointMap;
-    jointMap.reserve(boost::size(jointNodes));
+    auto jointNodes = robotNode.children(JOINT);
+    std::unordered_map<string, int> jointMap(boost::size(jointNodes));
 
     // loads all joints with creating a link tree
     for (xml_node jointNode : jointNodes) {
@@ -301,7 +298,7 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
         }
     }
 
-    // finds the root link
+    // finds the unique root link
     vector<LinkPtr> rootLinks = findRootLinks(linkMap);
     if (rootLinks.empty()) {
         os() << "Error: no root link is found." << endl;
@@ -371,32 +368,30 @@ bool URDFBodyLoader::Impl::loadLink(LinkPtr link, const xml_node& linkNode)
     // sets name (requrired)
     std::string name(linkNode.attribute(NAME).as_string());
     if (name.empty()) {
-        os() << "\033[31m Error: There exist a unnamed link.\033[m" << endl;
+        os() << "Error: there exist a unnamed link." << endl;
         return false;
     }
     link->setName(name);
 
     // 'inertial' (optional)
     const xml_node& inertialNode = linkNode.child(INERTIAL);
-    if (inertialNode == xml_node()) {
-        os() << "Debug: link '" << name << "' has no inertial data." << endl;
+    if (inertialNode.empty()) {
+        os() << "Debug: link \"" << name << "\" has no inertial data." << endl;
     } else {
         if (!loadInertialTag(link, inertialNode)) {
-            os() << "Note: The above error occurs while loading link '" << name
-                 << "'." << endl;
+            os() << "in link \"" << name << "\"." << endl;
             return false;
         }
     }
 
     // 'visual' (optional, multiple definition are allowed)
     if (linkNode.child(VISUAL).empty()) {
-        os() << "Debug: link '" << name << "' has no visual data." << endl;
+        os() << "Debug: link \"" << name << "\" has no visual data." << endl;
     } else {
         const auto visualNodes = linkNode.children(VISUAL);
         for (xml_node& visualNode : visualNodes) {
             if (!loadVisualTag(link, visualNode)) {
-                os() << "Note: The above error occurs while loading link '"
-                     << name << "'." << endl;
+                os() << "in link \"" << name << "\"." << endl;
                 return false;
             }
         }
@@ -404,13 +399,12 @@ bool URDFBodyLoader::Impl::loadLink(LinkPtr link, const xml_node& linkNode)
 
     // 'collision' (optional, multiple definition are allowed)
     if (linkNode.child(COLLISION).empty()) {
-        os() << "Debug: link '" << name << "' has no collision data." << endl;
+        os() << "Debug: link \"" << name << "\" has no collision data." << endl;
     } else {
         const auto collisionNodes = linkNode.children(COLLISION);
         for (xml_node& collisionNode : collisionNodes) {
             if (!loadCollisionTag(link, collisionNode)) {
-                os() << "Note: The above error occurs while loading link '"
-                     << name << "'." << endl;
+                os() << " in link \"" << name << "\"." << endl;
                 return false;
             }
         }
@@ -423,11 +417,12 @@ bool URDFBodyLoader::Impl::loadLink(LinkPtr link, const xml_node& linkNode)
 bool URDFBodyLoader::Impl::loadInertialTag(LinkPtr& link,
                                            const xml_node& inertialNode)
 {
-    // 'origin' tag
+    // 'origin' tag (optional)
     const xml_node& originNode = inertialNode.child(ORIGIN);
-    Vector3 translation;
-    Matrix3 rotation;
-    if (!readOriginTag(originNode, INERTIAL, translation, rotation)) {
+    Vector3 translation = Vector3::Zero();
+    Matrix3 rotation = Matrix3::Identity();
+    if (!readOriginTag(originNode, translation, rotation)) {
+        os() << " in an inertial tag";
         return false;
     }
     link->setCenterOfMass(translation);
@@ -437,14 +432,14 @@ bool URDFBodyLoader::Impl::loadInertialTag(LinkPtr& link,
     if (mass > 0.0) {
         link->setMass(mass);
     } else {
-        os() << "Error: mass value is invalid or not defined." << endl;
+        os() << "Error: mass value is invalid";
         return false;
     }
 
     // 'inertia' tag
     Matrix3 inertiaMatrix = Matrix3::Identity();
     const xml_node& inertiaNode = inertialNode.child(INERTIA);
-    if (inertiaNode != xml_node()) {
+    if (!inertiaNode.empty()) {
         if (!readInertiaTag(inertiaNode, inertiaMatrix)) {
             return false;
         }
@@ -458,27 +453,28 @@ bool URDFBodyLoader::Impl::loadInertialTag(LinkPtr& link,
 bool URDFBodyLoader::Impl::loadVisualTag(LinkPtr& link,
                                          const xml_node& visualNode)
 {
-    // 'origin' tag
+    // 'origin' tag (optional)
     const xml_node& originNode = visualNode.child(ORIGIN);
     Vector3 translation = Vector3::Zero();
     Matrix3 rotation = Matrix3::Identity();
-    if (!readOriginTag(originNode, INERTIAL, translation, rotation)) {
+    if (!readOriginTag(originNode, translation, rotation)) {
+        os() << " in a visual tag";
         return false;
     }
     Isometry3 originalPose;
     originalPose.linear() = rotation;
     originalPose.translation() = translation;
 
-    // 'geometry' tag
+    // 'geometry' tag (required)
     const xml_node& geometryNode = visualNode.child(GEOMETRY);
     if (geometryNode.empty()) {
-        os() << "Error: Visual geometry is not found." << endl;
+        os() << "Error: visual geometry is not found";
         return false;
     }
 
     SgNodePtr mesh = new SgNode;
     if (!readGeometryTag(geometryNode, mesh)) {
-        os() << "Error: Failed to load visual geometry" << endl;
+        os() << "Error: loading visual geometry failed";
     }
 
     // 'material' tag (optional)
@@ -530,28 +526,30 @@ bool URDFBodyLoader::Impl::loadVisualTag(LinkPtr& link,
 bool URDFBodyLoader::Impl::loadCollisionTag(LinkPtr& link,
                                             const xml_node& collisionNode)
 {
-    // 'origin' tag
+    // 'origin' tag (optional)
     const xml_node& originNode = collisionNode.child(ORIGIN);
     Vector3 translation = Vector3::Zero();
     Matrix3 rotation = Matrix3::Identity();
-    if (!readOriginTag(originNode, INERTIAL, translation, rotation)) {
+    if (!readOriginTag(originNode, translation, rotation)) {
+        os() << " in a collision tag";
         return false;
     }
     Isometry3 originalPose;
     originalPose.linear() = rotation;
     originalPose.translation() = translation;
 
-    // 'geometry' tag
+    // 'geometry' tag (required)
     const xml_node& geometryNode = collisionNode.child(GEOMETRY);
     if (geometryNode.empty()) {
-        os() << "Error: Collision geometry is not found." << endl;
+        os() << "Error: collision geometry is not found";
         return false;
     }
 
     SgNodePtr mesh = new SgNode;
     if (!readGeometryTag(geometryNode, mesh)) {
-        os() << "Error: Failed to load collision geometry" << endl;
+        os() << "Error: loading collision geometry failed";
     }
+
     SgPosTransformPtr transformation = new SgPosTransform(originalPose);
     transformation->addChild(mesh);
     link->addCollisionShapeNode(transformation);
@@ -561,7 +559,6 @@ bool URDFBodyLoader::Impl::loadCollisionTag(LinkPtr& link,
 
 
 bool URDFBodyLoader::Impl::readOriginTag(const xml_node& originNode,
-                                         const string& parentName,
                                          Vector3& translation,
                                          Matrix3& rotation)
 {
@@ -571,8 +568,7 @@ bool URDFBodyLoader::Impl::readOriginTag(const xml_node& originNode,
     } else {
         Vector3 origin_xyz;
         if (!toVector3(origin_xyz_str, translation)) {
-            os() << "Error: origin xyz of " << parentName
-                 << " is written in invalid format." << endl;
+            os() << "Error: origin xyz is written in invalid format";
             return false;
         }
     }
@@ -583,8 +579,7 @@ bool URDFBodyLoader::Impl::readOriginTag(const xml_node& originNode,
     } else {
         Vector3 origin_rpy;
         if (!toVector3(origin_rpy_str, origin_rpy)) {
-            os() << "Error: origin rpy of " << parentName
-                 << " is written in invalid format.";
+            os() << "Error: origin rpy is written in invalid format";
             return false;
         }
         rotation = rotFromRpy(origin_rpy);
@@ -596,7 +591,7 @@ bool URDFBodyLoader::Impl::readOriginTag(const xml_node& originNode,
 void URDFBodyLoader::Impl::printReadingInertiaTagError(
     const string& attribute_name)
 {
-    os() << "Error: " << attribute_name << " value is not defined." << endl;
+    os() << "Error: " << attribute_name << " value is not defined";
     return;
 }
 
@@ -659,7 +654,6 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
 
     MeshGenerator meshGenerator;
     SgShapePtr shape = new SgShape;
-    // const xml_node& elementNode = geometryNode.first_child();
 
     if (!geometryNode.child(BOX).empty()) {
         Vector3 size = Vector3::Zero();
@@ -710,8 +704,8 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
             sceneLoader_.load(ROSPackageSchemeHandler_(filename, os()),
                               isSupportedFormat));
         if (!isSupportedFormat) {
-            os() << "Error: format of the specified mesh file '" << filename
-                 << "' is not supported." << endl;
+            os() << "Error: format of the specified mesh file \"" << filename
+                 << "\" is not supported." << endl;
             return false;
         }
 
@@ -732,8 +726,8 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
             mesh = scaler;
         }
     } else {
-        os() << "Error: unsupported geometry "
-             << geometryNode.first_child().name() << " is described." << endl;
+        os() << "Error: unsupported geometry \""
+             << geometryNode.first_child().name() << "\" is described." << endl;
         return false;
     }
 
@@ -759,26 +753,38 @@ bool URDFBodyLoader::Impl::loadJoint(
 {
     // 'name' attribute (required)
     if (jointNode.attribute(NAME).empty()) {
-        os() << "Error: There exist a unnamed joint." << endl;
+        os() << "Error: an unnamed joint is found." << endl;
         return false;
     }
     const string jointName = jointNode.attribute(NAME).as_string();
 
     // 'parent' tag (required)
     if (jointNode.child(PARENT).attribute(LINK).empty()) {
-        os() << "Error: joint '" << jointName << "' has no parent." << endl;
+        os() << "Error: joint \"" << jointName << "\" has no parent." << endl;
         return false;
     }
     const string parentName = jointNode.child(PARENT).attribute(LINK).as_string();
-    LinkPtr parent = (*linkMap.find(parentName)).second;
+    auto parentSearchResult = linkMap.find(parentName);
+    if (parentSearchResult == linkMap.end()) {
+        os() << "Error: parent in joint \"" << jointName << "\" is invalid."
+             << endl;
+        return false;
+    }
+    const LinkPtr parent = parentSearchResult->second;
 
     // 'child' tag (required)
     if (jointNode.child(CHILD).attribute(LINK).empty()) {
-        os() << "Error: joint '" << jointName << "' has no child." << endl;
+        os() << "Error: joint \"" << jointName << "\" has no child." << endl;
         return false;
     }
     const string childName = jointNode.child(CHILD).attribute(LINK).as_string();
-    LinkPtr child = (*linkMap.find(childName)).second;
+    auto childSearchResult = linkMap.find(childName);
+    if (childSearchResult == linkMap.end()) {
+        os() << "Error: child in joint \"" << jointName << "\" is invalid."
+             << endl;
+        return false;
+    }
+    const LinkPtr child = childSearchResult->second;
 
     parent->appendChild(child);
     child->setParent(parent);
@@ -786,7 +792,7 @@ bool URDFBodyLoader::Impl::loadJoint(
 
     // 'type' attribute (required)
     if (jointNode.attribute(TYPE).empty()) {
-        os() << "Error: type of joint '" << jointName << "' is not defined."
+        os() << "Error: type of joint \"" << jointName << "\" is not defined."
              << endl;
         return false;
     }
@@ -805,10 +811,8 @@ bool URDFBodyLoader::Impl::loadJoint(
     if (!jointNode.child(ORIGIN).empty()) {
         Vector3 translation;
         Matrix3 rotation;
-        if (!readOriginTag(jointNode.child(ORIGIN),
-                           JOINT,
-                           translation,
-                           rotation)) {
+        if (!readOriginTag(jointNode.child(ORIGIN), translation, rotation)) {
+            os() << " in reading joint \"" << jointName << "\"." << endl;
             return false;
         }
         child->setOffsetTranslation(translation);
@@ -822,17 +826,18 @@ bool URDFBodyLoader::Impl::loadJoint(
     } else {
         const xml_attribute& xyzAttribute = axisNode.attribute(XYZ);
         if (xyzAttribute.empty()) {
-            os() << "Error: axis of joint '" << jointName
-                 << "'is not defined while 'axis' tag is written.";
+            os() << "Error: axis of joint \"" << jointName
+                 << "\" is not defined while 'axis' tag is written.";
             return false;
         }
 
         Vector3 axis = Vector3::UnitX();
         if (!toVector3(xyzAttribute.as_string(), axis)) {
-            os() << "Error: axis of joint '" << jointName
-                 << "' is written in invalid format." << endl;
+            os() << "Error: axis of joint \"" << jointName
+                 << "\" is written in invalid format." << endl;
             return false;
         }
+        axis.normalize();
         child->setJointAxis(axis);
     }
 
@@ -840,8 +845,8 @@ bool URDFBodyLoader::Impl::loadJoint(
     const xml_node& limitNode = jointNode.child(LIMIT);
     if (limitNode.empty()) {
         if (jointType == REVOLUTE || jointType == PRISMATIC) {
-            os() << "Error: limit of joint '" << jointName
-                 << "' is not defined." << endl;
+            os() << "Error: limit of joint \"" << jointName
+                 << "\" is not defined." << endl;
             return false;
         }
     } else {
@@ -864,32 +869,31 @@ bool URDFBodyLoader::Impl::loadJoint(
             const xml_attribute& velocityAttribute = limitNode.attribute(
                 VELOCITY);
             if (velocityAttribute.empty()) {
-                os() << "Error: velocity limit of joint '" << jointName
-                     << "' is not defined." << endl;
+                os() << "Error: velocity limit of joint \"" << jointName
+                     << "\" is not defined." << endl;
                 return false;
             }
             const double velocityLimit = velocityAttribute.as_double();
             if (velocityLimit < 0.0) {
-                os() << "Error: velocity limit of joint '" << jointName
-                     << "' have to be positive." << endl;
+                os() << "Error: velocity limit of joint \"" << jointName
+                     << "\" has to be positive." << endl;
                 return false;
             }
             child->setJointVelocityRange(-velocityLimit, velocityLimit);
 
-            // does choreonoid have effort limit functions?
-            //
             // if (limitNode.attribute(EFFORT).empty()) {
-            //     os() << "Error: effort limit of joint '" << jointName
-            //          << "' is not defined." << endl;
+            //     os() << "Error: effort limit of joint \"" << jointName
+            //          << "\" is not defined." << endl;
             //     return false;
             // }
             // const double effortLimit = limitNode.attribute(EFFORT)
             //                                  .as_double();
             // if (effortLimit < 0.0) {
-            //     os() << "Error: effort limit of joint '" << jointName
-            //          << "' have to be positive." << endl;
+            //     os() << "Error: effort limit of joint \"" << jointName
+            //          << "\" has to be positive." << endl;
             //     return false;
             // }
+            // child->setJointEffortRange(-effortLimit, effortLimit);
         }
     }
 

@@ -49,6 +49,7 @@ const char RPY[] = "rpy";
 const char SCALE[] = "scale";
 const char SIZE[] = "size";
 const char SPHERE[] = "sphere";
+const char TEXTURE[] = "texture";
 const char TYPE[] = "type";
 const char UPPER[] = "upper";
 const char VALUE[] = "value";

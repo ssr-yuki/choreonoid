@@ -149,7 +149,11 @@ private:
     int jointCounter_ = 0;
     SceneLoader sceneLoader_;
     ROSPackageSchemeHandler ROSPackageSchemeHandler_;
+    std::unordered_map<string, Vector4> colorMap;
 
+    void createColorMap(
+        const pugi::xml_object_range<pugi::xml_named_node_iterator>&
+            materialNodes);
     vector<LinkPtr> findRootLinks(
         const std::unordered_map<string, LinkPtr>& linkMap);
     bool loadLink(LinkPtr link, const xml_node& linkNode);
@@ -257,6 +261,10 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
     auto linkNodes = robot.children(LINK);
     auto jointNodes = robot.children(JOINT);
 
+    // creates a color dictionary before parsing the robot model
+    auto materialNodes = robot.children(MATERIAL);
+    createColorMap(materialNodes);
+
     // creates a link dictionary by loading all links for tree construction
     std::unordered_map<string, LinkPtr> linkMap;
     linkMap.reserve(boost::size(linkNodes));
@@ -305,6 +313,42 @@ bool URDFBodyLoader::Impl::load(Body* body, const string& filename)
     body->setRootLink(rootLinks.at(0));
 
     return true;
+}
+
+
+void URDFBodyLoader::Impl::createColorMap(
+    const pugi::xml_object_range<pugi::xml_named_node_iterator>& materialNodes)
+{
+    colorMap.reserve(boost::size(materialNodes));
+
+    for (xml_node& materialNode : materialNodes) {
+        const string materialName = materialNode.attribute(NAME).as_string();
+        const xml_node& colorNode = materialNode.child(COLOR);
+        const xml_node& textureNode = materialNode.child(TEXTURE);
+
+        if (materialName.empty()) {
+            continue;
+        } else if (!colorNode.empty()) {
+            // case: a 'color' tag exists
+            const string rgbaString = colorNode.attribute(RGBA).as_string();
+            Vector4 rgba = Vector4::Zero();
+            if (toVector4(rgbaString, rgba)) {
+                // normalizes value
+                rgba.array().min(1.0).max(0.0);
+
+                // tries to register the material
+                auto result = colorMap.emplace(materialName, rgba);
+                if (!result.second) {
+                    os() << "Warning: failed to add material named \""
+                         << materialName << "\"." << endl;
+                }
+            }
+        } else if (!textureNode.empty()) {
+            // case: a 'texture' tag exists
+            os() << "Warning: 'texture' tag is currently not supported."
+                 << endl;
+        }
+    }
 }
 
 
@@ -441,16 +485,38 @@ bool URDFBodyLoader::Impl::loadVisualTag(LinkPtr& link,
     const xml_node& materialNode = visualNode.child(MATERIAL);
     SgMaterialPtr material = new SgMaterial;
     if (!materialNode.empty()) {
+        const string materialName = materialNode.attribute(NAME).as_string();
         const xml_node& colorNode = materialNode.child(COLOR);
+        const xml_node& textureNode = materialNode.child(TEXTURE);
         if (!colorNode.empty()) {
+            // case: a 'color' tag exists
             const string rgbaString = colorNode.attribute(RGBA).as_string();
             Vector4 rgba = Vector4::Zero();
             if (toVector4(rgbaString, rgba)) {
+                // normalizes value
+                rgba.array().min(1.0).max(0.0);
+
                 material->setTransparency(1.0 - rgba[3]);
                 material->setDiffuseColor(Vector3(rgba[0], rgba[1], rgba[2]));
+                setMaterialToAllShapeNodes(mesh, material);
+            }
+        } else if (!textureNode.empty()) {
+            // case: a 'texture' tag exists
+            os() << "Warning: 'texture' tag is currently not supported."
+                 << endl;
+        } else if (!materialName.empty()) {
+            // case: neither a 'color' tag nor 'texture' tag does not exist
+            //       but a material name is specified
+            try {
+                const Vector4 rgba = colorMap.at(materialName);
+                material->setTransparency(1.0 - rgba[3]);
+                material->setDiffuseColor(Vector3(rgba[0], rgba[1], rgba[2]));
+                setMaterialToAllShapeNodes(mesh, material);
+            } catch (std::out_of_range&) {
+                os() << "Warning: a material named \"" << materialName
+                     << "\" is not found." << endl;
             }
         }
-        setMaterialToAllShapeNodes(mesh, material);
     }
 
     SgPosTransformPtr transformation = new SgPosTransform(originalPose);

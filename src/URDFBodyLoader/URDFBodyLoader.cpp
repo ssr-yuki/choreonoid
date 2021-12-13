@@ -163,7 +163,7 @@ private:
     void printReadingInertiaTagError(const string& attribute_name);
     bool readInertiaTag(const xml_node& inertiaNode, Matrix3& inertiaMatrix);
     bool readGeometryTag(const xml_node& geometryNode, SgNodePtr& mesh);
-    void setMaterialToAllShapeNodes(SgNode* node, SgMaterial* material);
+    void setMaterialToAllShapeNodes(SgNodePtr& node, SgMaterialPtr& material);
     bool loadJoint(std::unordered_map<string, LinkPtr>& linkMap,
                    const xml_node& jointNode);
 };
@@ -675,14 +675,14 @@ bool URDFBodyLoader::Impl::readGeometryTag(const xml_node& geometryNode,
 }
 
 
-void URDFBodyLoader::Impl::setMaterialToAllShapeNodes(SgNode* node,
-                                                      SgMaterial* material)
+void URDFBodyLoader::Impl::setMaterialToAllShapeNodes(SgNodePtr& node,
+                                                      SgMaterialPtr& material)
 {
     if (auto group = node->toGroupNode()) {
         for (auto& child : *group) {
-            setMaterialToAllShapeNodes(group, material);
+            setMaterialToAllShapeNodes(child, material);
         }
-    } else if (auto shape = dynamic_cast<SgShape*>(node)) {
+    } else if (auto shape = dynamic_cast<SgShape*>(node.get())) {
         shape->setMaterial(material);
     }
 }

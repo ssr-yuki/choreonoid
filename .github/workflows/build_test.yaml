@@ -19,8 +19,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: modify script
-        run: sed -i -e "s/sudo --preserve-env=DEBIAN_FRONTEND,TZ//g" misc/script/install-requisites-${{ matrix.ubuntu }}.sh
+      # - name: modify script
+      #   run: sed -i -e "s/sudo --preserve-env=DEBIAN_FRONTEND,TZ//g" misc/script/install-requisites-${{ matrix.ubuntu }}.sh
 
       - name: Install dependencies of choreonoid
         run: sh misc/script/install-requisites-${{ matrix.ubuntu }}.sh

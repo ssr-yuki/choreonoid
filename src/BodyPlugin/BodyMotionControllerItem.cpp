@@ -1,8 +1,3 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "BodyMotionControllerItem.h"
 #include "BodyMotionItem.h"
 #include <cnoid/ItemManager>
@@ -47,6 +42,7 @@ void BodyMotionControllerItem::initializeClass(ExtensionManager* ext)
 BodyMotionControllerItem::BodyMotionControllerItem()
 {
     impl = new BodyMotionControllerItemImpl(this);
+    setNoDelayMode(true);
 }
 
 
@@ -96,7 +92,10 @@ bool BodyMotionControllerItemImpl::initialize(ControllerIO* io)
         }
     }
 
-    qseqRef = motionItem->motion()->jointPosSeq();
+    auto motion = motionItem->motion();
+    motion->updateLinkPosSeqAndJointPosSeqWithBodyPositionSeq();
+
+    qseqRef = static_pointer_cast<MultiValueSeq>(motion->jointPosSeq()->cloneSeq());
 
     if(qseqRef->numFrames() == 0){
         mv->putln(
@@ -114,7 +113,7 @@ bool BodyMotionControllerItemImpl::initialize(ControllerIO* io)
 
     body = io->body();
 
-    auto lseq = motionItem->motion()->linkPosSeq();
+    auto lseq = motion->linkPosSeq();
     if(lseq->numParts() > 0 && lseq->numFrames() > 0){
         SE3& p = lseq->at(0, 0);
         Link* rootLink = body->rootLink();
@@ -127,7 +126,7 @@ bool BodyMotionControllerItemImpl::initialize(ControllerIO* io)
     MultiValueSeq::Frame q = qseqRef->frame(0);
     for(int i=0; i < numJoints; ++i){
         auto joint = body->joint(i);
-        joint->setActuationMode(Link::JOINT_DISPLACEMENT);
+        joint->setActuationMode(Link::JointDisplacement);
         joint->q() = joint->q_target() = q[i];
     }
     body->calcForwardKinematics();

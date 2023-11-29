@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "Archive.h"
 #include "Item.h"
 #include "MessageView.h"
@@ -49,7 +45,7 @@ public:
         
     Item* currentParentItem;
 
-    vector<function<void()>>* pointerToProcessesOnSubTreeRestored;
+    list<function<void()>>* pointerToProcessesOnSubTreeRestored;
     vector<FunctionInfo> postProcesses;
     vector<FunctionInfo> nextPostProcesses;
     bool isDoingPostProcesses;
@@ -95,15 +91,15 @@ void Archive::initSharedInfo(const std::string& projectFile, bool isSubProject)
 {
     shared = new ArchiveSharedData;
 
+    auto currentFpvp = FilePathVariableProcessor::currentInstance();
+
     if(!isSubProject){
-        shared->pathVariableProcessor = FilePathVariableProcessor::systemInstance();
+        shared->pathVariableProcessor = currentFpvp;
     } else {
-        shared->pathVariableProcessor = new FilePathVariableProcessor;
-        shared->pathVariableProcessor->setSystemVariablesEnabled(true);
+        shared->pathVariableProcessor = new FilePathVariableProcessor(*currentFpvp);
     }
 
-    auto projectDir = toUTF8(
-        filesystem::absolute(fromUTF8(projectFile)).parent_path().generic_string());
+    auto projectDir = toUTF8(filesystem::absolute(fromUTF8(projectFile)).parent_path().generic_string());
     shared->pathVariableProcessor->setBaseDirectory(projectDir);
     shared->pathVariableProcessor->setProjectDirectory(projectDir);
 }
@@ -123,9 +119,10 @@ void Archive::addProcessOnSubTreeRestored(const std::function<void()>& func) con
 }
 
 
-void Archive::setPointerToProcessesOnSubTreeRestored(std::vector<std::function<void()>>* pfunc)
+void Archive::setPointerToProcessesOnSubTreeRestored(void* pfunc)
 {
-    shared->pointerToProcessesOnSubTreeRestored = pfunc;
+    shared->pointerToProcessesOnSubTreeRestored =
+        reinterpret_cast<std::list<std::function<void()>>*>(pfunc);
 }
 
 
@@ -439,7 +436,6 @@ Item* Archive::findItem(const ValueNode* idNode) const
                         item = item->findChildItem(
                             idPath[i].toString(), [](Item* item){ return item->isSubItem(); });
                         if(!item){
-                            item = nullptr;
                             break;
                         }
                     }

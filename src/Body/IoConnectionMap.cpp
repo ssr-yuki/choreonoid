@@ -22,9 +22,10 @@ DigitalIoConnection::DigitalIoConnection()
 DigitalIoConnection::DigitalIoConnection
 (DigitalIoDevice* outDevice, int outIndex, DigitalIoDevice* inDevice, int inIndex)
 {
-    device_[Out] = outDevice;
+    setDevice(Out, outDevice);
     signalIndex_[Out] = outIndex;
-    device_[In] = inDevice;
+
+    setDevice(In, inDevice);
     signalIndex_[In] = inIndex;
 }
 
@@ -51,6 +52,26 @@ Referenced* DigitalIoConnection::doClone(CloneMap* cloneMap) const
 }
 
 
+void DigitalIoConnection::setDevice(int which, DigitalIoDevice* device)
+{
+    device_[which] = device;
+    if(device){
+        deviceName_[which] = device->name();
+        if(auto body = device->body()){
+            bodyName_[which] = body->name();
+        }
+    }
+}
+
+
+void DigitalIoConnection::setNames(int which, const std::string& bodyName, const std::string& deviceName)
+{
+    bodyName_[which] = bodyName;
+    deviceName_[which] = deviceName;
+    device_[which].reset();
+}
+
+
 const std::string& DigitalIoConnection::bodyName(int which) const
 {
     if(auto device = device_[which]){
@@ -72,40 +93,32 @@ const std::string& DigitalIoConnection::deviceName(int which) const
 }
 
 
-void DigitalIoConnection::setDevice(int which, DigitalIoDevice* device)
-{
-    device_[which] = device;
-    if(device){
-        deviceName_[which] = device->name();
-        if(auto body = device->body()){
-            bodyName_[which] = body->name();
-        }
-    }
-}
-
-
-void DigitalIoConnection::setNames(int which, const std::string& bodyName, const std::string& deviceName)
-{
-    bodyName_[which] = bodyName;
-    deviceName_[which] = deviceName;
-    device_[which].reset();
-}
-
-
 bool DigitalIoConnection::establishConnection()
 {
-    if(!hasDeviceInstances()){
-        connection.disconnect();
-        return false;
+    bool connected = false;
+    
+    if(hasDeviceInstances()){
+        auto srcDevice = outDevice();
+        auto srcIndex = outSignalIndex();
+        if(srcIndex < srcDevice->numSignalLines()){
+            DigitalIoDevicePtr destDevice = inDevice();
+            auto destIndex = inSignalIndex();
+            if(destIndex < destDevice->numSignalLines()){
+                connection.reset(
+                    srcDevice->sigOutput(srcIndex).connect(
+                        [destDevice, destIndex](bool on){
+                            destDevice->setIn(destIndex, on, true);
+                        }));
+                connected = true;
+            }
+        }
     }
 
-    DigitalIoDevicePtr destDevice = inDevice();
-    auto destIndex = inSignalIndex();
-    connection.reset(
-        outDevice()->sigOutput(outSignalIndex()).connect(
-            [destDevice, destIndex](bool on){
-                destDevice->setIn(destIndex, on, true); }));
-    return true;
+    if(!connected){
+        connection.disconnect();
+    }
+
+    return connected;
 }
 
 

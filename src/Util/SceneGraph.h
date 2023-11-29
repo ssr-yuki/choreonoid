@@ -1,8 +1,3 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_UTIL_SCENE_GRAPH_H
 #define CNOID_UTIL_SCENE_GRAPH_H
 
@@ -14,6 +9,7 @@
 #include <vector>
 #include <set>
 #include <memory>
+#include <functional>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -79,6 +75,10 @@ public:
     virtual int numChildObjects() const;
     virtual SgObject* childObject(int index);
 
+    SgObject* findObject(std::function<bool(SgObject* object)> pred) {
+        return findObject_(pred);
+    }
+
     SignalProxy<void(const SgUpdate& update)> sigUpdated() {
         return sigUpdated_;
     }
@@ -92,6 +92,12 @@ public:
         SgUpdate update(action);
         update.reservePathCapacity(16);
         notifyUpperNodesOfUpdate(update);
+    }
+
+    void notifyUpdate(SgUpdateRef update){
+        if(update){
+            notifyUpdate(*update);
+        }
     }
 
     void addParent(SgObject* parent, SgUpdateRef update = nullptr);
@@ -117,14 +123,26 @@ public:
 
     bool hasUri() const { return uriInfo && !uriInfo->uri.empty(); }
     const std::string& uri() const;
+    std::string localFilePath() const;
     bool hasAbsoluteUri() const { return uriInfo && !uriInfo->absoluteUri.empty(); }
     const std::string& absoluteUri() const;
+    std::string localFileAbsolutePath() const;
+    bool hasUriObjectName() const { return uriInfo && !uriInfo->objectName.empty(); }
+    const std::string& uriObjectName() const;
     bool hasUriFragment() const { return uriInfo && !uriInfo->fragment.empty(); }
     const std::string& uriFragment() const;
+    bool hasUriMetadataString() const { return uriInfo && !uriInfo->metadata.empty(); }
+    const std::string& uriMetadataString() const;
+    void setUriWithFilePathAndBaseDirectory(const std::string& filePath, const std::string& baseDirectory);
+    [[deprecated("Use setUriWithFilePathAndBaseDirectory.")]]
     void setUriByFilePathAndBaseDirectory(const std::string& filePath, const std::string& baseDirectory);
+    void setUriWithFilePathAndCurrentDirectory(const std::string& filePath);
+    [[deprecated("Use setUriWithFilePathAndCurrentDirectory")]]
     void setUriByFilePathAndCurrentDirectory(const std::string& filePath);
     void setUri(const std::string& uri, const std::string& absoluteUri);
+    void setUriObjectName(const std::string& name);
     void setUriFragment(const std::string& fragment);
+    void setUriMetadataString(const std::string& data);
     void clearUri() { uriInfo.reset(); }
 
     bool isNode() const { return hasAttribute(Node); }
@@ -152,10 +170,14 @@ private:
     struct UriInfo {
         std::string uri;
         std::string absoluteUri;
+        std::string objectName;
         std::string fragment;
+        std::string metadata;
     };
     
     mutable std::unique_ptr<UriInfo> uriInfo;
+
+    SgObject* findObject_(std::function<bool(SgObject* object)>& pred);
 };
 
 typedef ref_ptr<SgObject> SgObjectPtr;

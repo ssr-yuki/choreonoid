@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "MainWindow.h"
 #include "ViewArea.h"
 #include "InfoBar.h"
@@ -12,6 +8,7 @@
 #include "TimeBar.h"
 #include "UnifiedEditHistory.h"
 #include "LayoutSwitcher.h"
+#include "MessageView.h"
 #include <cnoid/Sleep>
 #include <QResizeEvent>
 #include <QWindowStateChangeEvent>
@@ -30,6 +27,9 @@ const bool TRACE_FUNCTIONS = false;
 
 MainWindow* mainWindow = nullptr;
 bool isLayoutSwitcherAvailable = true;
+
+Signal<void(QKeyEvent* event)> sigKeyPressed_;
+Signal<void(QKeyEvent* event)> sigKeyReleased_;
 
 QSize getAvailableScreenSize()
 {
@@ -348,7 +348,15 @@ void MainWindow::changeEvent(QEvent* event)
 
 void MainWindow::show()
 {
+    /**
+       This is necessary to avoid a crash when the MessageViwe's flush is called from
+       the event handlers resulting from a main window resize event.
+    */
+    MessageView::blockFlush();
+    
     impl->showFirst();
+    
+    MessageView::unblockFlush();
 }
 
 
@@ -378,6 +386,9 @@ void MainWindow::Impl::showFirst()
             }
             self->showFullScreen();
             //isGoingToMaximized = false;
+
+            sigFullScreenToggled(isFullScreen);
+
         } else if(config->get("maximized", false)){
 #ifdef Q_OS_WIN32
             self->resize(getAvailableScreenSize());
@@ -395,7 +406,7 @@ void MainWindow::Impl::showFirst()
             }
             self->showNormal();
         }
-        
+
         viewArea->setViewTabsVisible(config->get({ "show_view_tabs" }, true));
         self->statusBar()->setVisible(config->get("show_status_bar", true));
 
@@ -684,4 +695,25 @@ void MainWindow::Impl::keyPressEvent(QKeyEvent* event)
         event->ignore();
         break;
     }
+
+    sigKeyPressed_(event);
+}
+
+
+void MainWindow::keyReleaseEvent(QKeyEvent* event)
+{
+    sigKeyReleased_(event);
+    event->ignore();
+}
+
+
+SignalProxy<void(QKeyEvent* event)> MainWindow::sigKeyPressed()
+{
+    return sigKeyPressed_;
+}
+
+
+SignalProxy<void(QKeyEvent* event)> MainWindow::sigKeyReleased()
+{
+    return sigKeyReleased_;
 }

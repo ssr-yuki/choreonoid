@@ -1,7 +1,3 @@
-/*!
-  @author Shin'ichiro Nakaoka
- */
-
 #include "../Body.h"
 #include "../BodyMotion.h"
 #include "PyDeviceList.h"
@@ -13,6 +9,23 @@
 using namespace std;
 using namespace cnoid;
 namespace py = pybind11;
+
+namespace {
+
+using Matrix4RM = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
+using Matrix3RM = Eigen::Matrix<double, 3, 3, Eigen::RowMajor>;
+
+py::object Body_getInfo(Body& self, const std::string& key, py::object defaultValue)
+{
+    if(!PyFloat_Check(defaultValue.ptr())){
+        PyErr_SetString(PyExc_TypeError, "The argument type is not supported");
+        throw py::error_already_set();
+    }
+    double v = defaultValue.cast<double>();
+    return py::cast(self.info(key, v));
+}
+
+}
 
 namespace cnoid {
 
@@ -64,6 +77,7 @@ void exportPyBody(py::module& m)
         .def("addDevice", (void(Body::*)(Device*, Link*)) &Body::addDevice)
         .def("initializeDeviceStates", &Body::initializeDeviceStates)
         .def("removeDevice", &Body::removeDevice)
+        .def("removeDevicesOfLink", &Body::removeDevicesOfLink)
         .def("clearDevices", &Body::clearDevices)
         .def("isStaticModel", &Body::isStaticModel)
         .def("isFixedRootModel", &Body::isFixedRootModel)
@@ -83,10 +97,14 @@ void exportPyBody(py::module& m)
         .def("clearExternalForces", &Body::clearExternalForces)
         .def_property_readonly("numExtraJoints", &Body::numExtraJoints)
         .def("clearExtraJoints", &Body::clearExtraJoints)
+        .def_property_readonly("info", (Mapping*(Body::*)())&Body::info)
+        .def("getInfo", Body_getInfo)
         .def("hasVirtualJointForces", &Body::hasVirtualJointForces)
         .def("setVirtualJointForces", &Body::setVirtualJointForces)
         .def_static("addCustomizerDirectory", &Body::addCustomizerDirectory)
-        .def(BodyMotion::Frame() >> py::self)
+        .def("resetLinkName", &Body::resetLinkName)
+        .def("resetJointSpecificName", (void(Body::*)(Link *)) &Body::resetLinkName)
+        .def("resetJointSpecificName", (void(Body::*)(Link *, const std::string &name)) &Body::resetLinkName)
 
         // deprecated
         .def("getName", &Body::name)
@@ -107,18 +125,30 @@ void exportPyBody(py::module& m)
         .def("getNumExtraJoints", &Body::numExtraJoints)
         ;
 
-    py::class_<ExtraJoint> extraJoint(m, "ExtraJoint");
+    py::class_<ExtraJoint, ExtraJointPtr, Referenced> extraJoint(m, "ExtraJoint");
     extraJoint
         .def(py::init<>())
+        .def(py::init<ExtraJoint::ExtraJointType>())
         .def(py::init<ExtraJoint::ExtraJointType, const Vector3&>())
         .def("setType", &ExtraJoint::setType)
-        .def("setAxis", &ExtraJoint::setAxis)
+        .def("setLink", &ExtraJoint::setLink)
+        .def("setLocalPosition",
+             [](ExtraJoint& self, int which, Eigen::Ref<const Matrix4RM> T){ self.setLocalPosition(which, Isometry3(T)); })
+        .def("setLocalRotation",
+             [](ExtraJoint& self, int which, Eigen::Ref<const Matrix3RM> R){ self.setLocalRotation(which, R); })
+        .def("setLocalTranslation",
+             [](ExtraJoint& self, int which, const Vector3& p){ self.setLocalTranslation(which, p); })
+        .def("setAxis", [](ExtraJoint& self, int which, const Vector3& a){ self.setAxis(a); })
         .def("setPoint", &ExtraJoint::setPoint)
         ;
 
     py::enum_<ExtraJoint::ExtraJointType>(extraJoint, "ExtraJointType")
-        .value("EJ_PISTON", ExtraJoint::ExtraJointType::EJ_PISTON)
-        .value("EJ_BALL", ExtraJoint::ExtraJointType::EJ_BALL)
+        .value("Fixed", ExtraJoint::ExtraJointType::Fixed)
+        .value("Hinge", ExtraJoint::ExtraJointType::Hinge)
+        .value("Ball", ExtraJoint::ExtraJointType::Ball)
+        .value("Piston", ExtraJoint::ExtraJointType::Piston)
+        .value("EJ_BALL", ExtraJoint::ExtraJointType::Ball)
+        .value("EJ_PISTON", ExtraJoint::ExtraJointType::Piston)
         .export_values();
 }
    

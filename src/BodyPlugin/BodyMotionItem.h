@@ -1,14 +1,9 @@
-/**
-   @file
-   @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_PLUGIN_BODY_MOTION_ITEM_H
 #define CNOID_BODY_PLUGIN_BODY_MOTION_ITEM_H
 
+#include <cnoid/AbstractSeqItem>
 #include <cnoid/BodyMotion>
-#include <cnoid/MultiValueSeqItem>
-#include <cnoid/MultiSE3SeqItem>
+#include <memory>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -18,8 +13,17 @@ class CNOID_EXPORT BodyMotionItem : public AbstractSeqItem
 public:
     static void initializeClass(ExtensionManager* ext);
 
+    static void registerExtraSeqType(
+        const std::string& typeName, std::function<AbstractSeqItem*(std::shared_ptr<AbstractSeq> seq)> itemFactory);
+
+    static void registerExtraSeqContent(
+        const std::string& contentName, std::function<AbstractSeqItem*(std::shared_ptr<AbstractSeq> seq)> itemFactory);
+
+    [[deprecated("Use registerExtraSeqContent")]]
     static void addExtraSeqItemFactory(
-        const std::string& key, std::function<AbstractSeqItem*(std::shared_ptr<AbstractSeq> seq)> factory);
+        const std::string& contentName, std::function<AbstractSeqItem*(std::shared_ptr<AbstractSeq> seq)> itemFactory) {
+        registerExtraSeqContent(contentName, itemFactory);
+    }
 
     BodyMotionItem();
     BodyMotionItem(std::shared_ptr<BodyMotion> bodyMotion);
@@ -30,36 +34,19 @@ public:
     std::shared_ptr<BodyMotion> motion() { return bodyMotion_; }
     std::shared_ptr<const BodyMotion> motion() const { return bodyMotion_; }
 
-    MultiValueSeqItem* jointPosSeqItem() {
-        return jointPosSeqItem_;
-    }
-
-    const MultiValueSeqItem* jointPosSeqItem() const {
-        return jointPosSeqItem_;
-    }
-
-    std::shared_ptr<MultiValueSeq> jointPosSeq() {
-        return bodyMotion_->jointPosSeq();
-    }
-
-    MultiSE3SeqItem* linkPosSeqItem() {
-        return linkPosSeqItem_;
-    }
-
-    const MultiSE3SeqItem* linkPosSeqItem() const {
-        return linkPosSeqItem_;
-    }
-    
-    std::shared_ptr<MultiSE3Seq> linkPosSeq() {
-        return bodyMotion_->linkPosSeq();
-    }
-
     int numExtraSeqItems() const;
-    const std::string& extraSeqKey(int index) const;
+    const std::string& extraSeqContentName(int index) const;
+    [[deprecated("Use extraSeqContentName.")]]
+    const std::string& extraSeqKey(int index) const { return extraSeqContentName(index); }
     AbstractSeqItem* extraSeqItem(int index);
     const AbstractSeqItem* extraSeqItem(int index) const;
     SignalProxy<void()> sigExtraSeqItemsChanged();
     void updateExtraSeqItems();
+
+    [[deprecated("Use motion()->jointPosSeq()")]]
+    std::shared_ptr<MultiValueSeq> jointPosSeq() {
+        return bodyMotion_->jointPosSeq();
+    }
 
     bool isBodyJointVelocityUpdateEnabled() const {
         return isBodyJointVelocityUpdateEnabled_;
@@ -80,13 +67,10 @@ protected:
 
 private:
     std::shared_ptr<BodyMotion> bodyMotion_;
-    MultiValueSeqItemPtr jointPosSeqItem_;
-    MultiSE3SeqItemPtr linkPosSeqItem_;
+    bool isBodyJointVelocityUpdateEnabled_;
 
     class Impl;
     Impl* impl;
-
-    bool isBodyJointVelocityUpdateEnabled_;
 };
 
 typedef ref_ptr<BodyMotionItem> BodyMotionItemPtr;

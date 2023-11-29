@@ -8,17 +8,17 @@
 #include <cnoid/ObjSceneWriter>
 #include <cnoid/ItemManager>
 #include <cnoid/SceneGraph>
+#include <cnoid/UTF8>
+#include <cnoid/stdx/filesystem>
 #include <QLabel>
 #include <QSpinBox>
 #include "gettext.h"
 
 using namespace std;
 using namespace cnoid;
+namespace filesystem = cnoid::stdx::filesystem;
 
 namespace {
-
-BodyItemBodyFileIO* bodyFileIO;
-ItemFileIO* meshFileIO;
 
 /**
    \todo This class should be integrated with StdSceneFileExporter
@@ -68,6 +68,10 @@ public:
     virtual void createOptionPanelForSaving() override;
 };
 
+
+BodyItemBodyFileIO* bodyFileIO;
+SceneFileImporter* meshFileIO;
+
 }
 
 
@@ -84,13 +88,13 @@ void BodyItem::registerBodyItemFileIoSet(ItemManager* im)
 }
 
 
-ItemFileIO* BodyItem::bodyFileIO()
+BodyItemBodyFileIO* BodyItem::bodyFileIO()
 {
     return ::bodyFileIO;
 }
 
 
-ItemFileIO* BodyItem::meshFileIO()
+GeneralSceneFileImporterBase* BodyItem::meshFileIO()
 {
     return ::meshFileIO;
 }
@@ -133,6 +137,8 @@ void BodyItemFileIoBase::addExtModelFileModeCombo(QBoxLayout* box)
     extModelFileModeCombo = new QComboBox;
     extModelFileModeCombo->addItem(
         _("Link to the original model files"), StdSceneWriter::LinkToOriginalModelFiles);
+    extModelFileModeCombo->addItem(
+        _("Copy model files"), StdSceneWriter::CopyModelFiles);
     extModelFileModeCombo->addItem(
         _("Embed models"), StdSceneWriter::EmbedModels);
     extModelFileModeCombo->addItem(
@@ -208,6 +214,7 @@ StdBodyWriter* BodyItemBodyFileIO::ensureBodyWriter()
     if(!bodyWriter_){
         bodyWriter_ = new StdBodyWriter;
         bodyWriter_->setMessageSink(os());
+        bodyWriter_->setOriginalShapeExtModelFileUriRewritingEnabled(true);
     }
     return bodyWriter_;
 }
@@ -228,13 +235,22 @@ void BodyItemBodyFileIO::fetchOptionPanelForSaving()
     ensureBodyWriter();
     int mode = extModelFileModeCombo->currentData().toInt();
     bodyWriter_->setExtModelFileMode(mode);
-    //bodyWriter_->setTransformIntegrationEnabled(transformIntegrationCheck->isChecked());
+    bodyWriter_->setTransformIntegrationEnabled(transformIntegrationCheck->isChecked());
 }
 
 
 bool BodyItemBodyFileIO::save(BodyItem* item, const std::string& filename)
 {
-    if(ensureBodyWriter()->writeBody(item->body(), filename)){
+    ensureBodyWriter();
+
+    filesystem::path itemFilePath(fromUTF8(item->filePath()));
+    if(!itemFilePath.empty()){
+        bodyWriter_->setOriginalBaseDirectory(toUTF8(itemFilePath.parent_path().generic_string()));
+    } else {
+        bodyWriter_->setOriginalBaseDirectory("");
+    }
+    
+    if(bodyWriter_->writeBody(item->body(), filename)){
         if(auto overwriteAddon = item->findAddon<BodyOverwriteAddon>()){
             overwriteAddon->removeOverwriteItems(false);
         }

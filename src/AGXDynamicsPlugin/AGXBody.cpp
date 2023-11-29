@@ -3,6 +3,7 @@
 #include <cnoid/MeshExtractor>
 #include <cnoid/SceneDrawables>
 #include <cnoid/ForceSensor>
+#include <cnoid/stdx/clamp>
 #include <mutex>
 #include "AGXVehicleContinuousTrack.h"
 #include "AGXConvexDecomposition.h"
@@ -250,59 +251,70 @@ void AGXLink::setLinkStateToAGX()
 void AGXLink::setLinkStateToCnoid()
 {
     auto agxRigidBody = getAGXRigidBody();
-    if(!agxRigidBody) return;
-
-    // constraint
-    LinkPtr const orgLink = getOrgLink();
-    switch(orgLink->jointType()){
-        case Link::RevoluteJoint:
-        case Link::PrismaticJoint:{
-            agx::Constraint1DOF* const joint1DOF = agx::Constraint1DOF::safeCast(getAGXConstraint());
-            if(joint1DOF){
-                orgLink->q() = joint1DOF->getAngle();
-                orgLink->dq() = joint1DOF->getCurrentSpeed();
-                orgLink->u() = joint1DOF->getMotor1D()->getCurrentForce();
-                break;
-            }
-            //agx::PrismaticUniversalJoint* pujoint = dynamic_cast<agx::PrismaticUniversalJoint*>(joint);
-            //if(pujoint){
-            //    link->q() = pujoint->getAngle(customConstraintIndex);
-            //    link->dq() = pujoint->getCurrentSpeed(customConstraintIndex);
-            //    break;
-            //}
-        }
-        default :
-            break;
+    if(!agxRigidBody){
+        return;
     }
 
+    LinkPtr const orgLink = getOrgLink();
 
     // position, rotation
     const agx::AffineMatrix4x4& t = agxRigidBody->getTransform();
     orgLink->p() = Vector3(t(3,0), t(3,1), t(3,2));
     orgLink->R() << t(0,0), t(1,0), t(2,0),
-                 t(0,1), t(1,1), t(2,1),
-                 t(0,2), t(1,2), t(2,2);
+                    t(0,1), t(1,1), t(2,1),
+                    t(0,2), t(1,2), t(2,2);
 
-    // angular acceleration
-    const agx::Vec3& dw = agxRigidBody->getAngularAcceleration();
-    orgLink->dw() = Vector3(dw.x(), dw.y(), dw.z());
+    if(orgLink->sensingMode() & (Link::LinkTwist | Link::LinkAcceleration)){
+        const Vector3 c = orgLink->R() * orgLink->c();
 
-    // angular velocity
-    const agx::Vec3& w = agxRigidBody->getAngularVelocity();
-    orgLink->w() = Vector3(w.x(), w.y(), w.z());
+        if(orgLink->sensingMode() & Link::LinkTwist){
+            const agx::Vec3& v = agxRigidBody->getVelocity();
+            const Vector3 v0(v.x(), v.y(), v.z());
+            orgLink->v() = v0 - orgLink->w().cross(c);
+            const agx::Vec3& w = agxRigidBody->getAngularVelocity();
+            orgLink->w() = Vector3(w.x(), w.y(), w.z());
+        }
+        if(orgLink->sensingMode() & Link::LinkAcceleration){
+            const agx::Vec3& dv = agxRigidBody->getAcceleration();
+            const Vector3 dv0(dv.x(), dv.y(), dv.z());
+            orgLink->dv() = dv0 - orgLink->dw().cross(c);
+            const agx::Vec3& dw = agxRigidBody->getAngularAcceleration();
+            orgLink->dw() = Vector3(dw.x(), dw.y(), dw.z());
+        }
+    }
 
-    // center of mass
-    const Vector3 c = orgLink->R() * orgLink->c();
-
-    // acceleration
-    const agx::Vec3& dv = agxRigidBody->getAcceleration();
-    const Vector3 dv0(dv.x(), dv.y(), dv.z());
-    orgLink->dv() = dv0 - orgLink->dw().cross(c);
-
-    // velocity
-    const agx::Vec3& v = agxRigidBody->getVelocity();
-    const Vector3 v0(v.x(), v.y(), v.z());
-    orgLink->v() = v0 - orgLink->w().cross(c);
+    // constraint
+    switch(orgLink->jointType()){
+    case Link::RevoluteJoint:
+    case Link::PrismaticJoint:
+        if(auto joint1DOF = agx::Constraint1DOF::safeCast(getAGXConstraint())){
+            orgLink->q() = joint1DOF->getAngle();
+            if(orgLink->sensingMode() & Link::JointVelocity){
+                orgLink->dq() = joint1DOF->getCurrentSpeed();
+            }
+            if(orgLink->sensingMode() & Link::JointEffort){
+                orgLink->u() = 0.0;
+                auto motor = joint1DOF->getMotor1D();
+                if(motor->getEnable()){
+                    orgLink->u() += motor->getCurrentForce();
+                }
+                auto lock = joint1DOF->getLock1D();
+                if(lock->getEnable()){
+                    orgLink->u() += lock->getCurrentForce();
+                }
+            }
+        }
+        break;
+        //agx::PrismaticUniversalJoint* pujoint = dynamic_cast<agx::PrismaticUniversalJoint*>(joint);
+        //if(pujoint){
+        //    link->q() = pujoint->getAngle(customConstraintIndex);
+        //    link->dq() = pujoint->getCurrentSpeed(customConstraintIndex);
+        //    break;
+        //}
+        
+    default :
+        break;
+    }
 }
 
 int AGXLink::getIndex() const
@@ -598,7 +610,6 @@ agx::ConstraintRef AGXLink::createAGXConstraint(const Isometry3& T)
             desc.range.set(range);
             desc.range.enable = true;  // range.enable;
             desc.range.range = agx::RangeReal(orgLink->q_lower(), orgLink->q_upper());
-            constraint = AGXObjectFactory::createConstraint(desc);
 
             // Set from Link::ActuationMode
             // motor
@@ -691,7 +702,8 @@ void AGXLink::setTorqueToAGX()
             double dq_l = std::max(-1.0E12, orgLink->dq_lower());
             double dq_u = std::min(1.0E12, orgLink->dq_upper());
             joint1DOF->getMotor1D()->setSpeed( orgLink->u() < 0 ? dq_l : dq_u);
-            joint1DOF->getMotor1D()->setForceRange( agx::RangeReal(orgLink->u()));
+            double u = stdx::clamp(orgLink->u(), orgLink->u_lower(), orgLink->u_upper());
+            joint1DOF->getMotor1D()->setForceRange(agx::RangeReal(u));
 #endif
             break;
         }
@@ -852,14 +864,16 @@ void AGXBody::setCollisionExclude(){
 void AGXBody::setCollisionExcludeLinks(const Mapping& cdMapping){
     const Listing& excludeLinks = *cdMapping.findListing("excludeLinks");
     for(auto linkName : excludeLinks){
-        getAGXLink(linkName->toString())->enableExternalCollision(false);
+        if(auto agxLink = getAGXLink(linkName->toString())){
+            agxLink->enableExternalCollision(false);
+        }
     }
 }
 
 void AGXBody::setCollisionExcludeLinksDynamic(const Mapping& cdMapping){
     const Listing& excludeLinksDynamic = *cdMapping.findListing("excludeLinksDynamic");
     for(auto linkName : excludeLinksDynamic){
-        if(AGXLink* agxLink = getAGXLink(linkName->toString())){
+        if(auto agxLink = getAGXLink(linkName->toString())){
             agxLink->getAGXGeometry()->removeGroup(AGXGeometryDesc::globalCollisionGroupName);
             getAGXScene()->setCollisionPair(agxLink->getCollisionGroupName(), AGXGeometryDesc::globalCollisionGroupName, false);
         }
@@ -870,7 +884,7 @@ void AGXBody::setCollisionExcludeTreeDepth(const Mapping& cdMapping){
     const ValueNodePtr& excludeTreeDepthNode = cdMapping.find("excludeTreeDepth");
     if(!excludeTreeDepthNode->isValid()) return;
     if(!excludeTreeDepthNode->isScalar()) return;
-    const int& excludeTreeDepth = excludeTreeDepthNode->toInt();
+    const int excludeTreeDepth = excludeTreeDepthNode->toInt();
     for(int i = 0; i < numAGXLinks(); ++i){
         AGXLink* agxLink1 = getAGXLink(i);
         for(int j = i+1; j < numAGXLinks(); ++j){
@@ -882,10 +896,18 @@ void AGXBody::setCollisionExcludeTreeDepth(const Mapping& cdMapping){
                 ss << "AGXExcludeTreeDepth_" << agx::UuidGenerator().generate().str() << std::endl;
                 addCollisionGroupNameToDisableCollision(ss.str());
                 if(parent1){
-                    parent1 = parent1->getAGXParentLink();
+                    if(parent1->getOrgLink()->isFreeJoint()){
+                        parent1 = nullptr;
+                    } else {
+                        parent1 = parent1->getAGXParentLink();
+                    }
                 }
                 if(parent2){
-                    parent2 = parent2->getAGXParentLink();
+                    if(parent2->getOrgLink()->isFreeJoint()){
+                        parent2 = nullptr;
+                    } else {
+                        parent2 = parent2->getAGXParentLink();
+                    }
                 }
                 if(!parent1 && !parent2){
                     break;
@@ -924,8 +946,8 @@ void AGXBody::setCollisionExcludeLinkGroups(const Mapping& cdMapping){
         vector<string> excludeLinkNames;
         if(!agxConvert::setVector(linkNode->toListing(), excludeLinkNames)) continue;
         for(auto linkName : excludeLinkNames){
-            if(AGXLink*agxLink = getAGXLink(linkName)){
-                if(agxCollide::Geometry*geometry = agxLink->getAGXGeometry())
+            if(auto agxLink = getAGXLink(linkName)){
+                if(auto geometry = agxLink->getAGXGeometry())
                     geometry->addGroup(ss.str());
             }
         }
@@ -945,8 +967,8 @@ void AGXBody::setCollisionExcludeSelfCollisionLinks(const Mapping& cdMapping)
     vector<string> linkNames;
     if(!agxConvert::setVector(excludeSCLinksNode->toListing(), linkNames)) return;
     for(auto linkName : linkNames){
-        if(AGXLink* agxLink = getAGXLink(linkName)){
-            if(agxCollide::Geometry* geometry = agxLink->getAGXGeometry())
+        if(auto agxLink = getAGXLink(linkName)){
+            if(auto geometry = agxLink->getAGXGeometry())
                 geometry->addGroup(ss.str());
         }
     }
@@ -961,7 +983,7 @@ void AGXBody::setCollisionExcludeLinksWireCollision(const Mapping& cdMapping)
     vector<string> linkNames;
     if(!agxConvert::setVector(excludeLinksWireNode->toListing(), linkNames)) return;
     for(auto linkName : linkNames){
-        if(AGXLink* agxLink = getAGXLink(linkName)){
+        if(auto agxLink = getAGXLink(linkName)){
             getAGXScene()->setCollisionPair(agxLink->getCollisionGroupName(), AGXWireDesc::globalCollisionGroupName, false);
         }
     }

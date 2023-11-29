@@ -1,14 +1,10 @@
-/**
-   @file
-   @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_UTIL_SEQ_H
 #define CNOID_UTIL_SEQ_H
 
 #include "AbstractSeq.h"
 #include <memory>
-#include <vector>
+#include <deque>
+#include <utility>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -20,18 +16,20 @@ template <typename ElementType> class Seq : public AbstractSeq
 public:
     typedef ElementType value_type;
         
-    Seq(const char* seqType, int nFrames = 0.0)
+    Seq(const char* seqType, int numFrames = 0)
         : AbstractSeq(seqType),
-          container(nFrames)
+          container(numFrames)
     {
         frameRate_ = defaultFrameRate();
         offsetTime_ = 0.0;
     }
         
-    Seq(const SeqType& org)
-        : AbstractSeq(org),
-          container(org.container)
+    Seq(const SeqType& org, bool doCopyElements = true)
+        : AbstractSeq(org)
     {
+        if(doCopyElements){
+            container = org.container;
+        }
         frameRate_ = org.frameRate_;
         offsetTime_ = org.offsetTime_;
     }
@@ -72,6 +70,10 @@ public:
 
     virtual void setFrameRate(double frameRate) override {
         frameRate_ = frameRate;
+    }
+
+    const double timeStep() const {
+        return (frameRate_ > 0.0) ? 1.0 / frameRate_ : 0.0;
     }
 
     int numFrames() const {
@@ -116,12 +118,18 @@ public:
         const int n = numFrames();
         if(frame >= n){
             frame = (n > 0) ? (n - 1) : 0;
+        } else if(frame < 0){
+            frame = 0;
         }
         return frame;
     }
     
     double timeOfFrame(int frame) const {
         return (frameRate_ > 0.0) ? ((frame / frameRate_) + offsetTime_) : offsetTime_;
+    }
+
+    double offsetTime() const {
+        return offsetTime_;
     }
 
     virtual double getOffsetTime() const override {
@@ -145,6 +153,14 @@ public:
     }
 
     const ElementType& operator[](int frameIndex) const {
+        return container[frameIndex];
+    }
+
+    ElementType& frame(int frameIndex) {
+        return container[frameIndex];
+    }
+
+    const ElementType& frame(int frameIndex) const {
         return container[frameIndex];
     }
 
@@ -172,21 +188,36 @@ public:
         return container.back();
     }
 
-    int clampFrameIndex(int frameIndex, bool& out_isValidRange){
+    int clampFrameIndex(int frameIndex, bool& out_isWithinRange){
         if(frameIndex < 0){
             frameIndex = 0;
-            out_isValidRange = false;
+            out_isWithinRange = false;
         } else if(frameIndex >= numFrames()){
             frameIndex = numFrames() - 1;
-            out_isValidRange = false;
+            out_isWithinRange = false;
         } else {
-            out_isValidRange = true;
+            out_isWithinRange = true;
         }
         return frameIndex;
     }
 
+    void append(const ElementType& element){
+        container.push_back(element);
+    }
+
+    ElementType& append(){
+        container.emplace_back();
+        return container.back();
+    }
+    
+    void rotate() {
+        container.emplace_back();
+        std::swap(container.front(), container.back());
+        container.pop_front();
+    }
+
 protected:
-    std::vector<ElementType> container;
+    std::deque<ElementType> container;
     double frameRate_;
     double offsetTime_;
 

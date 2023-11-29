@@ -35,6 +35,7 @@ set(sources
 
 set(headers
   MprProgram.h
+  MprPosition.h
   MprPositionList.h
   MprStatementRegistration.h
   MprStatement.h
@@ -61,4 +62,4 @@ set(headers
 
 choreonoid_make_gettext_mo_files(${target} mofiles)
 choreonoid_add_plugin(${target} ${sources} ${mofiles} HEADERS ${headers})
-target_link_libraries(${target} CnoidBodyPlugin)
+target_link_libraries(${target} PUBLIC CnoidBodyPlugin)

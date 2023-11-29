@@ -12,6 +12,7 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <fmt/format.h>
+#include <cstdint>
 #include "gettext.h"
 
 using namespace std;
@@ -196,9 +197,10 @@ public:
     void selectNextPose(bool isAdding);
     void onMenuButtonClicked();
 
-    bool storeState(Archive& archive);
-    bool restoreState(const Archive& archive);
+    bool storeState(Archive& archive) override;
+    bool restoreState(const Archive& archive) override;
 };
+
 }
 
 
@@ -285,17 +287,17 @@ void PoseRollView::Impl::initialize()
     vbox->addLayout(gridLayout, 1);
     self->setLayout(vbox);
 
-    commandMenuManager.addItem(_("Select specified key poses"))->sigTriggered().connect(
-        [this](){ onSelectSpecifiedPosesActivated(); });
-    commandMenuManager.addItem(_("Adjust step positions"))->sigTriggered().connect(
+    commandMenuManager.addItem(_("Specific key pose selection"))->sigTriggered().connect(
+        [this](){ showSpecificKeyPoseSelectionDialog(); });
+    commandMenuManager.addItem(_("Step position adjustment"))->sigTriggered().connect(
         [this](){ onAdjustStepPositionsActivated(); });
-    commandMenuManager.addItem(_("Adjust waist positions of selected key poses"))->sigTriggered().connect(
+    commandMenuManager.addItem(_("Waist positions adjustment"))->sigTriggered().connect(
         [this](){ onAdjustWaistPositionActivated(); });
-    commandMenuManager.addItem(_("Rotate yaw orientations"))->sigTriggered().connect(
+    commandMenuManager.addItem(_("Yaw rotation"))->sigTriggered().connect(
         [this](){ onRotateYawOrientationsActivated(); });
-    commandMenuManager.addItem(_("Update key poses with balanced trajectories"))->sigTriggered().connect(
+    commandMenuManager.addItem(_("Key pose update with balanced trajectories"))->sigTriggered().connect(
         [this](){ onUpdatePosesWithBalancedTrajectoriesActivated(); });
-    commandMenuManager.addItem(_("Flip poses against the x-z plane"))->sigTriggered().connect(
+    commandMenuManager.addItem(_("Pose flipping against the x-z plane"))->sigTriggered().connect(
         [this](){ onFlipPosesActivated(); });
 
     lipSyncCheck = commandMenuManager.addCheckItem(_("Show lip-sync elements"));
@@ -1080,7 +1082,7 @@ void PoseRollView::Impl::updateTimeSpinConfigurations()
         poseTTimeSpin.setValue(0.0);
     } else {
         auto it = selected.front();
-        ulong id = reinterpret_cast<ulong>(it->pose()) & 0xffffffff;
+        unsigned int id = reinterpret_cast<uintptr_t>(it->pose()) & 0xffffffff;
         poseNameLabel.setText(format("{0:0X}", id).c_str());
         poseTimeSpin.setEnabled(true);
         poseTimeSpin.setValue(timeScale * it->time());

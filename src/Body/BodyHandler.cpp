@@ -32,3 +32,27 @@ bool BodyHandler::checkVersion(const char* name, int version, int internalVersio
 
     return true;
 }
+
+
+BodyHandler::BodyHandler()
+{
+    body_ = nullptr;
+}
+
+
+bool BodyHandler::initialize(Body*, std::ostream&)
+{
+    return true;
+}
+
+
+BodyHandler* BodyHandler::clone()
+{
+    return nullptr;
+}
+
+
+BodyHandler* BodyHandler::clone(Body*)
+{
+    return nullptr;
+}

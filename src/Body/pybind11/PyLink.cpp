@@ -1,7 +1,3 @@
-/**
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "../Link.h"
 #include "../Body.h"
 #include <cnoid/ValueTree>
@@ -18,7 +14,7 @@ namespace {
 using Matrix4RM = Eigen::Matrix<double, 4, 4, Eigen::RowMajor>;
 using Matrix3RM = Eigen::Matrix<double, 3, 3, Eigen::RowMajor>;
 
-py::object Link_info2(Link& self, const std::string& key, py::object defaultValue)
+py::object Link_getInfo(Link& self, const std::string& key, py::object defaultValue)
 {
     if(!PyFloat_Check(defaultValue.ptr())){
         PyErr_SetString(PyExc_TypeError, "The argument type is not supported");
@@ -44,6 +40,7 @@ void exportPyLink(py::module& m)
         .def("isStatic", &Link::isStatic)
         .def("isFixedToRoot", &Link::isFixedToRoot)
         .def("isOwnerOf", &Link::isOwnerOf)
+        .def("isEndLink", &Link::isEndLink)
         .def_property_readonly("body", (Body*(Link::*)())&Link::body)
         .def_property_readonly("parent", &Link::parent)
         .def_property_readonly("sibling", &Link::sibling)
@@ -85,6 +82,8 @@ void exportPyLink(py::module& m)
         .def_property_readonly("Rb", [](const Link& self){ return self.Rb(); })
         .def_property_readonly("offsetRotation", [](const Link& self){ return self.offsetRotation(); })
         .def_property_readonly("jointId", &Link::jointId)
+        .def_property_readonly("jointName", &Link::jointName)
+        .def_property_readonly("jointSpecificName", &Link::jointSpecificName)
         .def_property_readonly("jointType", &Link::jointType)
         .def_property_readonly("jointTypeLabel", [](const Link& self){ return self.jointTypeLabel(); })
         .def_property_readonly("jointTypeSymbol", [](const Link& self){ return self.jointTypeSymbol(); })
@@ -92,6 +91,7 @@ void exportPyLink(py::module& m)
         .def("isFreeJoint", &Link::isFreeJoint)
         .def("isRevoluteJoint", &Link::isRevoluteJoint)
         .def("isPrismaticJoint", &Link::isPrismaticJoint)
+        .def("hasActualJoint", &Link::hasActualJoint)
         .def_property_readonly("a", &Link::a)
         .def_property_readonly("jointAxis", &Link::jointAxis)
         .def_property_readonly("d", &Link::d)
@@ -106,10 +106,21 @@ void exportPyLink(py::module& m)
         .def_property("dq", (double&(Link::*)())&Link::dq, [](Link& self, double dq){ self.dq() = dq; })
         .def_property("ddq", (double&(Link::*)())&Link::ddq, [](Link& self, double ddq){ self.ddq() = ddq; })
         .def_property("u", (double&(Link::*)())&Link::u, [](Link& self, double u){ self.u() = u; })
+        .def_property("q_target", (double&(Link::*)())&Link::q_target, [](Link& self, double q){ self.q_target() = q; })
+        .def_property("dq_target", (double&(Link::*)())&Link::dq_target, [](Link& self, double dq){ self.dq_target() = dq; })
+        .def_property_readonly("q_initial", (double(Link::*)()const)&Link::q_initial)
         .def_property_readonly("q_upper", (double(Link::*)()const)&Link::q_upper)
         .def_property_readonly("q_lower", (double(Link::*)()const)&Link::q_lower)
         .def_property_readonly("dq_upper", (double(Link::*)()const)&Link::dq_upper)
         .def_property_readonly("dq_lower", (double(Link::*)()const)&Link::dq_lower)
+        .def_property_readonly("u_upper", (double(Link::*)()const)&Link::u_upper)
+        .def_property_readonly("u_lower", (double(Link::*)()const)&Link::u_lower)
+        .def("hasJointDisplacementLimits", &Link::hasJointDisplacementLimits)
+        .def("hasJointVelocityLimits", &Link::hasJointVelocityLimits)
+        .def("hasJointEffortLimits", &Link::hasJointEffortLimits)
+        .def("setUnlimitedJointDisplacementRange", &Link::setUnlimitedJointDisplacementRange)
+        .def("setUnlimitedJointVelocityRange", &Link::setUnlimitedJointVelocityRange)
+        .def("setUnlimitedEffortRange", &Link::setUnlimitedEffortRange)
         .def_property(
             "v",
             [](Link& self) -> Vector3& { return self.v(); },
@@ -168,6 +179,7 @@ void exportPyLink(py::module& m)
         .def_property_readonly("visualShape", &Link::visualShape)
         .def_property_readonly("collisionShape", &Link::collisionShape)
         .def_property_readonly("hasDedicatedCollisionShape", &Link::hasDedicatedCollisionShape)
+        .def("setParent", &Link::setParent)
         .def("setIndex", &Link::setIndex)
         .def("setName", &Link::setName)
         .def("prependChild", &Link::prependChild)
@@ -180,9 +192,14 @@ void exportPyLink(py::module& m)
         .def("setOffsetRotation", [](Link& self, const AngleAxis& aa){ self.setOffsetRotation(aa); })
         .def("setJointType", &Link::setJointType)
         .def("setJointId", &Link::setJointId)
+        .def("setJointName", &Link::setJointName)
+        .def("resetJointSpecificName", &Link::resetJointSpecificName)
         .def("setJointAxis", &Link::setJointAxis)
+        .def("setInitialJointAngle", &Link::setInitialJointAngle)
+        .def("setInitialJointDisplacement", &Link::setInitialJointDisplacement)
         .def("setJointRange", &Link::setJointRange)
         .def("setJointVelocityRange", &Link::setJointVelocityRange)
+        .def("setJointEffortRange", &Link::setJointEffortRange)
         .def("setMass", &Link::setMass)
         .def("setInertia", &Link::setInertia)
         .def("setCenterOfMass", &Link::setCenterOfMass)
@@ -194,8 +211,8 @@ void exportPyLink(py::module& m)
         .def("addCollisionShapeNode", [](Link& self, SgNode* shape){ self.addCollisionShapeNode(shape, true); })
         .def("removeShapeNode", [](Link& self, SgNode* shape){ self.removeShapeNode(shape, true); })
         .def("clearShapeNodes", [](Link& self){ self.clearShapeNodes(true); })
-        .def("info", (Mapping*(Link::*)())&Link::info)
-        .def("info", Link_info2)
+        .def_property_readonly("info", (Mapping*(Link::*)())&Link::info)
+        .def("getInfo", Link_getInfo)
         .def("floatInfo", [](Link& self, const std::string& key) { return self.info<double>(key); })
 
         // deprecated
@@ -231,7 +248,6 @@ void exportPyLink(py::module& m)
         .def("getCollisionShape", &Link::collisionShape)
         .def("getAttitude", [](const Link& self){ return self.rotation(); })
         .def("getInfo", (Mapping*(Link::*)())&Link::info)
-        .def("getInfo", Link_info2)
         .def("getFloatInfo", [](Link& self, const std::string& key) { return self.info<double>(key); })
         ;
 
@@ -242,10 +258,10 @@ void exportPyLink(py::module& m)
         .value("FixedJoint", Link::FixedJoint)
         .value("PseudoContinuousTrackJoint", Link::PseudoContinuousTrackJoint)
         // deprecated
-        .value("ROTATIONAL_JOINT", Link::JointType::ROTATIONAL_JOINT)
-        .value("SLIDE_JOINT", Link::JointType::SLIDE_JOINT)
-        .value("FREE_JOINT", Link::JointType::FREE_JOINT)
-        .value("FIXED_JOINT", Link::JointType::FIXED_JOINT)
+        .value("ROTATIONAL_JOINT", Link::JointType::RevoluteJoint)
+        .value("SLIDE_JOINT", Link::JointType::PrismaticJoint)
+        .value("FREE_JOINT", Link::JointType::FreeJoint)
+        .value("FIXED_JOINT", Link::JointType::FixedJoint)
         .export_values();
     
     py::enum_<Link::StateFlag>(link, "StateFlag")

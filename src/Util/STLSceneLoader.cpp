@@ -510,7 +510,7 @@ SgNode* STLSceneLoader::Impl::load(const string& filename)
         return nullptr;
     }
 
-    mesh->setUriByFilePathAndCurrentDirectory(filename);
+    mesh->setUriWithFilePathAndCurrentDirectory(filename);
 
     auto shape = new SgShape;
     shape->setMesh(mesh);
@@ -814,6 +814,7 @@ void AsciiMeshLoader::loadTriangles()
         string name;
         if(scanner.readString(name)){
             sharedMesh->setName(name);
+            sharedMesh->setUriObjectName(name);
         }
         scanner.checkLFEx();
         scanner.getLine();

@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #include "StdSceneReader.h"
 #include "SceneDrawables.h"
 #include "SceneLights.h"
@@ -14,6 +9,7 @@
 #include "SceneLoader.h"
 #include "YAMLReader.h"
 #include "EigenArchive.h"
+#include "UriSchemeProcessor.h"
 #include "FilePathVariableProcessor.h"
 #include "NullOut.h"
 #include "ImageIO.h"
@@ -23,7 +19,6 @@
 #include <fmt/format.h>
 #include <unordered_map>
 #include <mutex>
-#include <regex>
 #include "gettext.h"
 
 using namespace std;
@@ -74,15 +69,17 @@ public:
         unique_ptr<SceneNodeMap> sceneNodeMap;
         unique_ptr<YAMLReader> yamlReader;
         string directory;
+        string file;
+        string metadata;
     };
     typedef ref_ptr<ResourceInfo> ResourceInfoPtr;
 
     map<string, ResourceInfoPtr> resourceInfoMap;
-    
+
+    string baseDirectory;
     SceneLoader sceneLoader;
-    FilePathVariableProcessorPtr pathVariableProcessor;
-    regex uriSchemeRegex;
-    bool isUriSchemeRegexReady;
+    bool sceneLoaderConfigurationChanged;
+    unique_ptr<UriSchemeProcessor> uriSchemeProcessor;
     typedef map<string, SgImagePtr> ImagePathToSgImageMap;
     ImagePathToSgImageMap imagePathToSgImageMap;
 
@@ -91,8 +88,6 @@ public:
 
     static NodeFunctionMap nodeFunctionMap;
     static std::mutex nodeFunctionMapMutex;
-    static unordered_map<string, UriSchemeHandler> uriSchemeHandlerMap;
-    static std::mutex uriSchemeHandlerMutex;
 
     Impl(StdSceneReader* self);
     ~Impl();
@@ -103,7 +98,8 @@ public:
     bool readRotation(const ValueNode* info, Matrix3& out_R) const;
     bool readTranslation(const ValueNode* info, Vector3& out_p) const;
 
-    FilePathVariableProcessor* getOrCreatePathVariableProcessor();
+    std::string getBaseDirectory() const;
+    void ensureUriSchemeProcessor(FilePathVariableProcessor* fpvp = nullptr);
     SgNode* readNode(Mapping* info);
     SgNode* readNode(Mapping* info, const string& type);
     SgNode* readNodeNode(Mapping* info);
@@ -139,10 +135,11 @@ public:
     SgNode* readPerspectiveCamera(Mapping* info);
     SgNode* readOrthographicCamera(Mapping* info);
     SgNode* readFog(Mapping* info);
+    SgNode* readText(Mapping* info);
     SgNode* readResourceAsScene(Mapping* info);
-    Resource readResourceNode(Mapping* info, bool doSetUri);
+    Resource readResourceNode(Mapping* info);
     void extractNamedSceneNodes(Mapping* resourceNode, ResourceInfo* info, Resource& resource);
-    ResourceInfo* getOrCreateResourceInfo(Mapping* resourceNode, const string& uri);
+    ResourceInfo* getOrCreateResourceInfo(Mapping* resourceNode, const string& uri, const string& metadata);
     stdx::filesystem::path findFileInPackage(const string& file);
     void adjustNodeCoordinate(SceneNodeInfo& info);
     void makeSceneNodeMap(ResourceInfo* info);
@@ -165,8 +162,6 @@ public:
 
 StdSceneReader::Impl::NodeFunctionMap StdSceneReader::Impl::nodeFunctionMap;
 std::mutex StdSceneReader::Impl::nodeFunctionMapMutex;
-unordered_map<string, StdSceneReader::UriSchemeHandler> StdSceneReader::Impl::uriSchemeHandlerMap;
-std::mutex StdSceneReader::Impl::uriSchemeHandlerMutex;
 
 }
 
@@ -185,13 +180,6 @@ bool extract(Mapping* mapping, const char* key, ValueType& out_value)
 
 }
 
-
-void StdSceneReader::registerUriSchemeHandler(const std::string& scheme, UriSchemeHandler handler)
-{
-    std::lock_guard<std::mutex> guard(Impl::uriSchemeHandlerMutex);
-    Impl::uriSchemeHandlerMap[scheme] = handler;
-}
-                                                 
 
 StdSceneReader::StdSceneReader()
 {
@@ -219,13 +207,14 @@ StdSceneReader::Impl::Impl(StdSceneReader* self)
                 { "PerspectiveCamera",  &Impl::readPerspectiveCamera },
                 { "OrthographicCamera", &Impl::readOrthographicCamera },
                 { "Fog",                &Impl::readFog },
+                { "Text",               &Impl::readText },
                 { "Resource",           &Impl::readResourceAsScene }
             };
         }
     }
     
     os_ = &nullout();
-    isUriSchemeRegexReady = false;
+    sceneLoaderConfigurationChanged = false;
     imageIO.setUpsideDown(true);
 }
 
@@ -264,40 +253,58 @@ int StdSceneReader::defaultDivisionNumber() const
 
 void StdSceneReader::setBaseDirectory(const std::string& directory)
 {
-    impl->getOrCreatePathVariableProcessor()->setBaseDirectory(directory);
+    impl->baseDirectory = directory;
+    if(impl->uriSchemeProcessor){
+        impl->uriSchemeProcessor->filePathVariableProcessor()->setBaseDirectory(directory);
+    }
 }
 
 
 std::string StdSceneReader::baseDirectory() const
 {
-    if(impl->pathVariableProcessor){
-        return impl->pathVariableProcessor->baseDirectory();
+    return impl->getBaseDirectory();
+}
+
+
+std::string StdSceneReader::Impl::getBaseDirectory() const
+{
+    if(uriSchemeProcessor){
+        return uriSchemeProcessor->filePathVariableProcessor()->baseDirectory();
+    } else {
+        return baseDirectory;
     }
-    return string();
 }
 
 
 stdx::filesystem::path StdSceneReader::baseDirPath() const
 {
-    if(impl->pathVariableProcessor){
-        return impl->pathVariableProcessor->baseDirPath();
+    if(impl->uriSchemeProcessor){
+        return impl->uriSchemeProcessor->filePathVariableProcessor()->baseDirPath();
+    } else {
+        return fromUTF8(impl->baseDirectory);
     }
-    return stdx::filesystem::path();
 }
 
 
-void StdSceneReader::setFilePathVariableProcessor(FilePathVariableProcessor* processor)
+void StdSceneReader::Impl::ensureUriSchemeProcessor(FilePathVariableProcessor* fpvp)
 {
-    impl->pathVariableProcessor = processor;
+    if(!uriSchemeProcessor){
+        uriSchemeProcessor = make_unique<UriSchemeProcessor>();
+        if(!fpvp){
+            fpvp = new FilePathVariableProcessor;
+            fpvp->setBaseDirectory(baseDirectory);
+        }
+    }
+    if(fpvp){
+        uriSchemeProcessor->setFilePathVariableProcessor(fpvp);
+    }
 }
 
 
-FilePathVariableProcessor* StdSceneReader::Impl::getOrCreatePathVariableProcessor()
+void StdSceneReader::setFilePathVariableProcessor(FilePathVariableProcessor* fpvp)
 {
-    if(!pathVariableProcessor){
-        pathVariableProcessor = new FilePathVariableProcessor;
-    }
-    return pathVariableProcessor;
+    impl->ensureUriSchemeProcessor(fpvp);
+    impl->baseDirectory = fpvp->baseDirectory();
 }
 
 
@@ -508,6 +515,13 @@ bool StdSceneReader::readRotation
 bool StdSceneReader::extractRotation(Mapping* info, Matrix3& out_R) const
 {
     ValueNodePtr value = info->extract("rotation");
+    return impl->readRotation(value, out_R);
+}
+
+
+bool StdSceneReader::extractRotation(Mapping* info, const char* key, Matrix3& out_R) const
+{
+    ValueNodePtr value = info->extract(key);
     return impl->readRotation(value, out_R);
 }
 
@@ -1290,13 +1304,11 @@ SgVertexArray* StdSceneReader::Impl::readVertices(Listing* srcVertices)
 
 SgMesh* StdSceneReader::Impl::readResourceAsGeometry(Mapping* info, int meshOptions)
 {
-    auto resource = readResourceNode(info, false);
+    auto resource = readResourceNode(info);
 
     SgNode* scene = nullptr;
-    bool isDirectResource = false;
     if(resource.scene){
         scene = resource.scene;
-        isDirectResource = true;
     } else if(resource.info){
         scene = readNode(resource.info->toMapping());
     }
@@ -1308,13 +1320,6 @@ SgMesh* StdSceneReader::Impl::readResourceAsGeometry(Mapping* info, int meshOpti
     auto mesh = shape->mesh();
     if(!mesh){
         info->throwException(_("A resouce specified as a geometry does not have a mesh"));
-    }
-    if(isDirectResource){
-        mesh->setUriByFilePathAndBaseDirectory(
-            resource.uri, getOrCreatePathVariableProcessor()->baseDirectory());
-        if(!resource.fragment.empty()){
-            resource.scene->setUriFragment(resource.fragment);
-        }
     }
         
     double creaseAngle;
@@ -1398,17 +1403,16 @@ void StdSceneReader::Impl::readTexture(SgShape* shape, Mapping* info)
             auto it = imagePathToSgImageMap.find(uri);
             if(it != imagePathToSgImageMap.end()){
                 image = it->second;
-            }else{
-                auto fpvp = getOrCreatePathVariableProcessor();
-                auto filename = fpvp->expand(uri, true);
+            } else {
+                ensureUriSchemeProcessor();
+                auto filename = uriSchemeProcessor->getFilePath(uri);
                 if(filename.empty()){
-                    os() << format(_("Warning: texture uri \"{0}\" is not valid: {1}"),
-                                   uri, fpvp->errorMessage()) << endl;
+                    os() << format(_("Warning: texture URI \"{0}\" is not valid: {1}"),
+                                   uri, uriSchemeProcessor->errorMessage()) << endl;
                 } else {
                     image = new SgImage;
                     if(imageIO.load(image->image(), filename, os())){
-                        image->setUriByFilePathAndBaseDirectory(
-                            uri, getOrCreatePathVariableProcessor()->baseDirectory());
+                        image->setUri(uri, filename);
                         imagePathToSgImageMap[uri] = image;
                     } else {
                         image.reset();
@@ -1614,9 +1618,30 @@ SgNode* StdSceneReader::Impl::readFog(Mapping* info)
 }
 
 
+SgNode* StdSceneReader::Impl::readText(Mapping* info)
+{
+    SgTextPtr text = new SgText;
+    if(info->read("text", symbol)){
+        text->setText(symbol);
+    }
+    if(info->read("height", value)){
+        text->setTextHeight(value);
+    }
+    if(read(info, "color", color)){
+        text->setColor(color);
+    }
+
+    SgNode* scene = readTransformParameters(info, text);
+    if(scene == text){
+        return text.retn();
+    }
+    return scene;
+}
+
+
 SgNode* StdSceneReader::Impl::readResourceAsScene(Mapping* info)
 {
-    auto resource = readResourceNode(info, true);
+    auto resource = readResourceNode(info);
     if(resource.scene){
         return resource.scene;
     } else if(resource.info){
@@ -1628,17 +1653,17 @@ SgNode* StdSceneReader::Impl::readResourceAsScene(Mapping* info)
 
 StdSceneReader::Resource StdSceneReader::readResourceNode(Mapping* info)
 {
-    return impl->readResourceNode(info, true);
+    return impl->readResourceNode(info);
 }
 
 
 StdSceneReader::Resource StdSceneReader::readResourceNode(Mapping& info)
 {
-    return impl->readResourceNode(&info, true);
+    return impl->readResourceNode(&info);
 }
 
 
-StdSceneReader::Resource StdSceneReader::Impl::readResourceNode(Mapping* info, bool doSetUri)
+StdSceneReader::Resource StdSceneReader::Impl::readResourceNode(Mapping* info)
 {
     Resource resource;
 
@@ -1648,9 +1673,11 @@ StdSceneReader::Resource StdSceneReader::Impl::readResourceNode(Mapping* info, b
     if(fragmentNode->isValid()){
         resource.fragment = fragmentNode->toString();
     }
+    info->read("metadata", resource.metadata);
     
-    ResourceInfo* resourceInfo = getOrCreateResourceInfo(info, resource.uri);
+    ResourceInfo* resourceInfo = getOrCreateResourceInfo(info, resource.uri, resource.metadata);
     if(resourceInfo){
+        resource.file = resourceInfo->file;
         resource.directory = resourceInfo->directory;
         bool isYamlResouce = (resourceInfo->yamlReader != nullptr);
         if(resource.fragment.empty()){
@@ -1671,15 +1698,14 @@ StdSceneReader::Resource StdSceneReader::Impl::readResourceNode(Mapping* info, b
                 }
             }
         }
-    }
 
-    if(resource.scene){
-        resource.scene = readTransformParameters(info, resource.scene);
-        if(doSetUri){
-            resource.scene->setUriByFilePathAndBaseDirectory(
-                resource.uri, getOrCreatePathVariableProcessor()->baseDirectory());
-            if(!resource.fragment.empty()){
-                resource.scene->setUriFragment(resource.fragment);
+        if(resource.scene){
+            resource.scene = readTransformParameters(info, resource.scene);
+            if(auto uriObject = resource.scene->findObject([](SgObject* object){ return object->hasUri(); })){
+                uriObject->setUri(resource.uri, resource.file);
+                if(!resource.fragment.empty()){
+                    uriObject->setUriFragment(resource.fragment);
+                }
             }
         }
     }
@@ -1712,7 +1738,7 @@ void StdSceneReader::Impl::extractNamedSceneNodes
 
 
 StdSceneReader::Impl::ResourceInfo*
-StdSceneReader::Impl::getOrCreateResourceInfo(Mapping* resourceNode, const string& uri)
+StdSceneReader::Impl::getOrCreateResourceInfo(Mapping* resourceNode, const string& uri, const string& metadata)
 {
     auto iter = resourceInfoMap.find(uri);
 
@@ -1720,67 +1746,22 @@ StdSceneReader::Impl::getOrCreateResourceInfo(Mapping* resourceNode, const strin
         return iter->second;
     }
 
-    if(!isUriSchemeRegexReady){
-        uriSchemeRegex.assign("^(.+)://(.+)$");
-        isUriSchemeRegexReady = true;
-    }
-    smatch match;
-    string filename;
-    bool hasScheme = false;
-    bool isFileScheme = false;
-        
-    if(regex_match(uri, match, uriSchemeRegex)){
-        hasScheme = true;
-        if(match.size() == 3){
-            const string scheme = match.str(1);
-            if(scheme == "file"){
-                filename = match.str(2);
-                isFileScheme = true;
-            } else {
-                std::lock_guard<std::mutex> guard(uriSchemeHandlerMutex);
-                auto iter = uriSchemeHandlerMap.find(scheme);
-                if(iter == uriSchemeHandlerMap.end()){
-                    resourceNode->throwException(
-                        format(_("The \"{0}\" scheme of \"{1}\" is not available"), scheme, uri));
-                } else {
-                    auto& handler = iter->second;
-                    filename = handler(match.str(2), os());
-                    isFileScheme = true;
-                }
-            }
-        }
-    }
-
-    if(!hasScheme){
-        filename = uri;
-        isFileScheme = true;
-    }
-
-    if(isFileScheme){
-        auto pvp = getOrCreatePathVariableProcessor();
-        filename = pvp->expand(filename, true);
-        if(filename.empty()){
-            resourceNode->throwException(
-                format(_("The resource URI \"{0}\" is not valid: {1}"),
-                       uri, pvp->errorMessage()));
-        }
-    } else {
-        if(filename.empty()){
-            resourceNode->throwException(
-                format(_("The resource URI \"{}\" is not valid"), uri));
-        }
-    }
-
     ResourceInfoPtr info = new ResourceInfo;
+    
+    ensureUriSchemeProcessor();
+    info->file = uriSchemeProcessor->getFilePath(uri);
+    if(info->file.empty()){
+        resourceNode->throwException(uriSchemeProcessor->errorMessage());
+    }
 
-    filesystem::path filepath(fromUTF8(filename));
-    string ext = filepath.extension().string();
+    filesystem::path filePath(fromUTF8(info->file));
+    string ext = filePath.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
     if(ext == ".yaml" || ext == ".yml"){
         unique_ptr<YAMLReader> reader(new YAMLReader);
         reader->importAnchors(*mainYamlReader);
-        if(!reader->load(filename)){
+        if(!reader->load(info->file)){
             resourceNode->throwException(
                 format(_("YAML resource \"{0}\" cannot be loaded ({1})"),
                  uri, reader->errorMessage()));
@@ -1788,7 +1769,31 @@ StdSceneReader::Impl::getOrCreateResourceInfo(Mapping* resourceNode, const strin
         info->yamlReader = std::move(reader);
 
     } else {
-        SgNodePtr scene = sceneLoader.load(filename);
+        if(sceneLoaderConfigurationChanged){
+            sceneLoader.setLengthUnitHint(AbstractSceneLoader::Meter);
+            sceneLoader.setUpperAxisHint(AbstractSceneLoader::Z_Upper);
+            sceneLoaderConfigurationChanged = false;
+        }
+        if(!metadata.empty()){
+            size_t start;
+            size_t end = 0;
+            string symbol;
+            while((start = metadata.find_first_not_of(' ', end)) != std::string::npos) {
+                end = metadata.find(' ', start);
+                symbol = metadata.substr(start, end - start);
+                if(symbol == "millimeter"){
+                    sceneLoader.setLengthUnitHint(AbstractSceneLoader::Millimeter);
+                    sceneLoaderConfigurationChanged = true;
+                } else if(symbol == "inch"){
+                    sceneLoader.setLengthUnitHint(AbstractSceneLoader::Inch);
+                    sceneLoaderConfigurationChanged = true;
+                } else if(symbol == "y_upper"){
+                    sceneLoader.setUpperAxisHint(AbstractSceneLoader::Y_Upper);
+                    sceneLoaderConfigurationChanged = true;
+                }
+            }
+        }
+        SgNodePtr scene = sceneLoader.load(info->file);
         if(!scene){
             resourceNode->throwException(
                 format(_("The resource is not found at URI \"{}\""), uri));
@@ -1796,7 +1801,7 @@ StdSceneReader::Impl::getOrCreateResourceInfo(Mapping* resourceNode, const strin
         info->scene = scene;
     }
 
-    info->directory = toUTF8(filepath.parent_path().string());
+    info->directory = toUTF8(filePath.parent_path().string());
     
     resourceInfoMap[uri] = info;
 

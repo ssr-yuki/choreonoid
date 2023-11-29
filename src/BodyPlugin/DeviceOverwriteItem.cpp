@@ -197,7 +197,7 @@ Item* DeviceOverwriteItem::doCloneItem(CloneMap* cloneMap) const
 }
 
 
-bool DeviceOverwriteItem::onCheckNewOverwritePosition(bool isManualOperation)
+bool DeviceOverwriteItem::onNewOverwritePositionCheck(bool /* isManualOperation */)
 {
     return true;
 }
@@ -455,7 +455,7 @@ DeviceLocation::DeviceLocation(DeviceOverwriteItem::Impl* impl)
     : LocationProxy(OffsetLocation),
       impl(impl)
 {
-    setEditable(false);
+    setLocked(true);
     sigAttributeChanged().connect([impl](){ impl->updateDeviceOffsetMarker(); });
 }
     
@@ -536,7 +536,7 @@ void DeviceOverwriteItem::Impl::updateDeviceOffsetMarker()
     }
 
     if(deviceLocation){
-        deviceOffsetMarker->setDragEnabled(deviceLocation->isEditable());
+        deviceOffsetMarker->setDragEnabled(!deviceLocation->isLocked());
     }
     
     if(device){

@@ -1,8 +1,3 @@
-/**
-   @file
-   @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_PLUGIN_WORLD_LOG_FILE_ITEM_H
 #define CNOID_BODY_PLUGIN_WORLD_LOG_FILE_ITEM_H
 
@@ -37,7 +32,8 @@ public:
     void endHeaderOutput();
     void beginFrameOutput(double time);
     void beginBodyStateOutput();
-    void outputLinkPositions(SE3* positions, int size);
+    //! \param positions Sequence of x, y, z, qx, qy, qz, qw, ...
+    void outputLinkPositions(double* positions, int numLinkPositions);
     void outputJointPositions(double* values, int size);
     void beginDeviceStateOutput();
     void outputDeviceState(DeviceState* state);

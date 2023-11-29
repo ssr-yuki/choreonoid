@@ -1,14 +1,10 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "SplineFilterDialog.h"
 #include <cnoid/EigenUtil>
 #include <cnoid/UniformCubicBSpline>
 #include <cnoid/MultiValueSeqItem>
 #include <cnoid/MultiSE3SeqItem>
 #include <cnoid/BodyMotionItem>
-#include <cnoid/MultiVector3Seq>
+#include <cnoid/MultiVector3SeqItem>
 #include <cnoid/ZMPSeq>
 #include <cnoid/RootItem>
 #include <cnoid/ItemList>
@@ -31,8 +27,6 @@ using namespace cnoid;
 using fmt::format;
 
 namespace {
-
-typedef MultiSeqItem<MultiVector3Seq> MultiVector3SeqItem;
 
 typedef UniformCubicBSplineVector<Array2D<double>, Array2D<double>::Row, double> Spline;
 
@@ -352,6 +346,8 @@ void SplineFilterDialog::onAccepted()
     ItemList<BodyMotionItem> bItems = items;
     for(int i=0; i < bItems.size(); ++i){
         auto motion = bItems[i]->motion();
+        motion->updateLinkPosSeqAndJointPosSeqWithBodyPositionSeq();
+        
         double ifps = inputFrameRateCheck.isChecked()  ? inputFrameRateSpin.value()  : motion->frameRate();
         double ofps = outputFrameRateCheck.isChecked() ? outputFrameRateSpin.value() : motion->frameRate();
         
@@ -360,6 +356,8 @@ void SplineFilterDialog::onAccepted()
 
         applySplineFilter(*motion->jointPosSeq(), ifps, ofps, ratio);
         applySplineFilter(*motion->linkPosSeq(), ifps, ofps, ratio);
+
+        motion->updateBodyPositionSeqWithLinkPosSeqAndJointPosSeq();
 
         if(auto zmpSeq = getZMPSeq(*motion)){
             applySplineFilter(*zmpSeq, ifps, ofps, ratio);

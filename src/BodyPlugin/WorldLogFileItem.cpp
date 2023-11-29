@@ -1,8 +1,3 @@
-/**
-   @file
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "WorldLogFileItem.h"
 #include "SimulatorItem.h"
 #include "SubSimulatorItem.h"
@@ -29,7 +24,6 @@
 #include <cnoid/stdx/filesystem>
 #include <fmt/format.h>
 #include <QDateTime>
-#include <QMessageBox>
 #include <fstream>
 #include <stack>
 #include <map>
@@ -56,7 +50,7 @@ enum DataTypeID {
     DEVICE_STATES
 };
 
-struct NotEnoughDataException { };
+struct CorruptLogException { };
 
 class ReadBuf
 {
@@ -88,7 +82,7 @@ public:
 
     void ensureSize(int size){
         if(!checkSize(size)){
-            throw NotEnoughDataException();
+            throw CorruptLogException();
         }
     }
 
@@ -163,7 +157,11 @@ public:
     }
 
     int readSeekOffset(){
-        return readInt();
+        int offset = readInt();
+        if(offset < 0){
+            throw CorruptLogException();
+        }            
+        return offset;
     }
 
     float readFloat(){
@@ -193,7 +191,10 @@ public:
 
     std::string readString(){
         ensureSize(2);
-        const int size = (unsigned int)readShort();
+        const int size = readShort();
+        if(size < 0){
+            throw CorruptLogException();
+        }
         ensureSize(size);
         std::string str;
         str.reserve(size);
@@ -371,7 +372,7 @@ ItemList<BodyItem>::iterator findItemOfName(ItemList<BodyItem>& items, const std
 class WorldLogFileEngine : public TimeSyncItemEngine
 {
 public:
-    WorldLogFileItemPtr logItem;
+    WorldLogFileItem* logItem;
     WorldLogFileEngine(WorldLogFileItem* item)
         : TimeSyncItemEngine(item)
     {
@@ -450,9 +451,9 @@ public:
     bool readTopHeader();
     bool readFrameHeader(int pos);
     bool seek(double time);
-    bool recallStateAtTime(double time);
     bool loadCurrentFrameData();
-    void readBodyStatees();
+    bool recallStateAtTime(double time);
+    void readBodyStates(double time);
     void readBodyState(BodyInfo* bodyInfo, double time);
     int readLinkPositions(Body* body);
     int readJointPositions(Body* body);
@@ -700,8 +701,11 @@ bool WorldLogFileItem::Impl::readTopHeader()
                     currentReadFramePos = readBuf.pos;
                     result = readFrameHeader(readBuf.pos);
                 }
-            } catch(NotEnoughDataException& ex){
+            } catch(CorruptLogException&){
                 bodyNames.clear();
+                MessageView::instance()->putln(
+                    format(_("Log file of {0} is corrupt."), self->displayName()),
+                    MessageView::Error);
             }
         }
     }
@@ -806,21 +810,32 @@ bool WorldLogFileItem::recallStateAtTime(double time)
 
 bool WorldLogFileItem::Impl::recallStateAtTime(double time)
 {
-    if(!seek(time)){
-        return false;
-    }
-
-    if(!isCurrentFrameDataLoaded){
-        if(!loadCurrentFrameData()){
-            return false;
+    bool isValid = false;
+    
+    try {
+        if(seek(time)){
+            if(isCurrentFrameDataLoaded || loadCurrentFrameData()){
+                readBuf.seek(0);
+                if(isBodyInfoUpdateNeeded){
+                    updateBodyInfos();
+                }
+                readBodyStates(time);
+                isValid = !isOverRange;
+            }
         }
     }
-    readBuf.seek(0);
-
-    if(isBodyInfoUpdateNeeded){
-        updateBodyInfos();
+    catch(CorruptLogException&){
+        MessageView::instance()->putln(
+            format(_("Corrupt log at time {0} in {1}."), time, self->displayName()),
+            MessageView::Error);
     }
-    
+
+    return isValid;
+}
+
+
+void WorldLogFileItem::Impl::readBodyStates(double time)
+{
     int bodyIndex = 0;
     while(!readBuf.isEnd()){
         int dataTypeID = readBuf.readID();
@@ -839,13 +854,10 @@ bool WorldLogFileItem::Impl::recallStateAtTime(double time)
             ++bodyIndex;
             break;
         }
-
         default:
             readBuf.seekToNextBlock();
         }
     }
-
-    return !isOverRange;
 }
 
 
@@ -1108,16 +1120,23 @@ void WorldLogFileItem::beginBodyStateOutput()
 }
 
 
-void WorldLogFileItem::outputLinkPositions(SE3* positions, int size)
+void WorldLogFileItem::outputLinkPositions(double* positions, int numLinkPositions)
 {
     impl->writeBuf.writeID(LINK_POSITIONS);
     impl->reserveSizeHeader();
-    impl->writeBuf.writeShort(size);
-    for(int i=0; i < size; ++i){
-        impl->writeBuf.writeSE3(positions[i]);
+    impl->writeBuf.writeShort(numLinkPositions);
+    for(int i=0; i < numLinkPositions; ++i){
+        impl->writeBuf.writeFloat(positions[0]); // x
+        impl->writeBuf.writeFloat(positions[1]); // y
+        impl->writeBuf.writeFloat(positions[2]); // z
+        impl->writeBuf.writeFloat(positions[6]); // qw
+        impl->writeBuf.writeFloat(positions[3]); // qx
+        impl->writeBuf.writeFloat(positions[4]); // qy
+        impl->writeBuf.writeFloat(positions[5]); // qz
+        positions += 7;
     }
     impl->fixSizeHeader();
-}
+}    
 
 
 void WorldLogFileItem::outputJointPositions(double* values, int size)
@@ -1269,11 +1288,12 @@ void WorldLogFileItem::Impl::openDialogToSelectDirectoryToSavePlaybackArchive()
         auto filenames = dialog.selectedFiles();
         string filename(filenames.at(0).toStdString());
         if(!filename.empty()){
-            QString message(_("The current project will be replaced with a new project for the log playback. "
-                              "Do you want to continue?"));
-            auto button = QMessageBox::warning(
-                MainWindow::instance(), _("Project replacement"), message, QMessageBox::Ok | QMessageBox::Cancel);
-            if(button == QMessageBox::Ok){
+            bool confirmed = showWarningDialog(
+                _("Project replacement"),
+                _("The current project will be replaced with a new project for the log playback. "
+                  "Do you want to continue?"),
+                true);
+            if(confirmed){
                 saveProjectAsPlaybackArchive(filename);
             }
         }
@@ -1480,7 +1500,7 @@ int WorldLogFileItem::Impl::replaceWithArchiveItems(Item* item, ItemToItemMap& o
     }
 
     if(!archiveItem){
-        if(!item->isTemporal() &&
+        if(!item->isTemporary() &&
            !item->isSubItem() &&
            item->filePath().empty() &&
            !dynamic_cast<SimulatorItem*>(item) &&

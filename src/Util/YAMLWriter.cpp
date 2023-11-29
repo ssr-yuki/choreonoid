@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "YAMLWriter.h"
 #include "NullOut.h"
 #include "UTF8.h"
@@ -44,7 +40,6 @@ public:
     const char* doubleFormat;
     std::stack<State> states;
     State* current;
-    MappingPtr info;
     string linebuf;
     unordered_set<ref_ptr<const ValueNode>> nodeSet;
     typedef unordered_map<ref_ptr<const ValueNode>, int> AnchorMap;
@@ -52,8 +47,8 @@ public:
     int anchorIndex;
     string anchor;
 
-    Impl(const std::string filename);
-    Impl(std::ostream& os);
+    Impl(YAMLWriter* self, const std::string& filename);
+    Impl(YAMLWriter* self, std::ostream& os);
     ~Impl();
 
     ostream& os() { return *os_; }
@@ -63,8 +58,7 @@ public:
     void newLine();
     void indent();
     bool makeValuePutReady();
-    void putAnchor();
-    bool startValuePut();
+    bool startValuePut(bool doPutValueInSameLine);
     void endValuePut();
     void putString(const std::string& value);
     void putString(const char* value);
@@ -91,19 +85,19 @@ public:
 
 YAMLWriter::YAMLWriter()
 {
-    impl = new Impl(nullout());
+    impl = new Impl(this, nullout());
 }
 
 
-YAMLWriter::YAMLWriter(const std::string filename)
+YAMLWriter::YAMLWriter(const std::string& filename)
 {
-    impl = new Impl(filename);
+    impl = new Impl(this, filename);
     openFile(filename);
 }
 
 
-YAMLWriter::Impl::Impl(const std::string filename)
-    : Impl(ofs)
+YAMLWriter::Impl::Impl(YAMLWriter* self, const std::string&)
+    : Impl(self, ofs)
 {
 
 }
@@ -111,16 +105,16 @@ YAMLWriter::Impl::Impl(const std::string filename)
 
 YAMLWriter::YAMLWriter(std::ostream& os)
 {
-    impl = new Impl(os);
+    impl = new Impl(this, os);
 }
 
 
-YAMLWriter::Impl::Impl(std::ostream& os)
+YAMLWriter::Impl::Impl(YAMLWriter* self, std::ostream& os)
     : os_(&os)
 {
     indentWidth = 2;
     isCurrentNewLine = true;
-    current = 0;
+    current = nullptr;
     numDocuments = 0;
     isKeyOrderPreservationMode = false;
     messageSink_ = &nullout();
@@ -129,7 +123,7 @@ YAMLWriter::Impl::Impl(std::ostream& os)
 
     pushState(TOP, false);
 
-    info = new Mapping;
+    self->info_ = new Mapping;
 }    
 
 
@@ -312,20 +306,12 @@ bool YAMLWriter::Impl::makeValuePutReady()
 }
 
 
-void YAMLWriter::Impl::putAnchor()
-{
-    if(!anchor.empty()){
-        os() << anchor;
-        anchor.clear();
-    }
-}
-
-
-bool YAMLWriter::Impl::startValuePut()
+bool YAMLWriter::Impl::startValuePut(bool doPutValueInSameLine)
 {
     if(!makeValuePutReady()){
         return false;
     }
+    
     if(current->type == LISTING && current->isFlowStyle){
         if(current->hasValuesBeenPut){
             os() << ", ";
@@ -337,7 +323,16 @@ bool YAMLWriter::Impl::startValuePut()
             isCurrentNewLine = false;
         }
     }
-    putAnchor();
+
+    // Put an anchor
+    if(!anchor.empty()){
+        os() << anchor;
+        if(doPutValueInSameLine || current->isFlowStyle){
+            os() << " ";
+        }
+        anchor.clear();
+    }
+
     return true;
 }
 
@@ -356,7 +351,7 @@ void YAMLWriter::Impl::endValuePut()
 
 void YAMLWriter::Impl::putString(const std::string& value)
 {
-    if(startValuePut()){
+    if(startValuePut(true)){
         if(value.empty()){
             os() << "\"\"";
         } else {
@@ -369,7 +364,7 @@ void YAMLWriter::Impl::putString(const std::string& value)
 
 void YAMLWriter::Impl::putString(const char* value)
 {
-    if(startValuePut()){
+    if(startValuePut(true)){
         if(value[0] == '\0'){
             os() << "\"\"";
         } else {
@@ -394,7 +389,7 @@ void YAMLWriter::putString(const std::string& value)
 
 template<class StringType> void YAMLWriter::Impl::putSingleQuotedString(const StringType& value)
 {
-    if(startValuePut()){
+    if(startValuePut(true)){
         os() << "'" << value << "'";
         endValuePut();
     }
@@ -415,7 +410,7 @@ void YAMLWriter::putSingleQuotedString(const std::string& value)
 
 void YAMLWriter::Impl::putDoubleQuotedString(const char* value)
 {
-    if(startValuePut()){
+    if(startValuePut(true)){
         os() << "\"";
         while(true){
             switch(*value){
@@ -435,7 +430,7 @@ end:
 
 void YAMLWriter::Impl::putDoubleQuotedString(const string& value)
 {
-    if(startValuePut()){
+    if(startValuePut(true)){
         os() << "\"";
         for(size_t i=0; i < value.size(); ++i){
             switch(value[i]){
@@ -470,7 +465,7 @@ void YAMLWriter::Impl::putBlockStyleString(const std::string& value, bool isLite
         throw ex;
     }
     
-    if(startValuePut()){
+    if(startValuePut(true)){
 
         if(isLiteral){
             os() << "|\n";
@@ -576,7 +571,7 @@ void YAMLWriter::startFlowStyleMapping()
 
 void YAMLWriter::Impl::startMappingSub(bool isFlowStyle)
 {
-    if(startValuePut()){
+    if(startValuePut(isFlowStyle)){
         int parentType = current->type;
         State& state = pushState(MAPPING, isFlowStyle);
         if(state.isFlowStyle){
@@ -667,7 +662,7 @@ void YAMLWriter::startFlowStyleListing()
 
 void YAMLWriter::Impl::startListingSub(bool isFlowStyle)
 {
-    if(startValuePut()){
+    if(startValuePut(isFlowStyle)){
         State& state = pushState(LISTING, isFlowStyle);
         if(state.isFlowStyle){
             os() << "[ ";
@@ -809,12 +804,12 @@ bool YAMLWriter::Impl::setAnchorOrPutAliasForSharedNode(const ValueNode* node)
     if(it != anchorMap.end()){
         auto inserted = nodeSet.insert(node);
         if(!inserted.second){
-            startValuePut();
+            startValuePut(false);
             os() << format("*A{}", it->second);
             endValuePut();
             return true;
         } else {
-            anchor = format("&A{} ", it->second);
+            anchor = format("&A{}", it->second);
         }
     }
     return false;
@@ -916,82 +911,4 @@ void YAMLWriter::Impl::putListingNode(const Listing* listing)
     }
 
     endListing();
-}
-
-
-const Mapping* YAMLWriter::info() const
-{
-    return impl->info;
-}
-
-
-Mapping* YAMLWriter::info()
-{
-    return impl->info;
-}
-
-
-template<> double YAMLWriter::info(const std::string& key) const
-{
-    return impl->info->get(key).toDouble();
-}
-
-
-template<> double YAMLWriter::info(const std::string& key, const double& defaultValue) const
-{
-    double value;
-    if(impl->info->read(key, value)){
-        return value;
-    }
-    return defaultValue;
-}
-
-
-template<> bool YAMLWriter::info(const std::string& key, const bool& defaultValue) const
-{
-    bool value;
-    if(impl->info->read(key, value)){
-        return value;
-    }
-    return defaultValue;
-}
-
-
-template<> double YAMLWriter::getOrCreateInfo(const std::string& key, const double& defaultValue)
-{
-    double value;
-    if(!impl->info->read(key, value)){
-        impl->info->write(key, defaultValue);
-        value = defaultValue;
-    }
-    return value;
-}
-
-
-template<> bool YAMLWriter::getOrCreateInfo(const std::string& key, const bool& defaultValue)
-{
-    bool value;
-    if(!impl->info->read(key, value)){
-        impl->info->write(key, defaultValue);
-        value = defaultValue;
-    }
-    return value;
-}
-
-
-template<> void YAMLWriter::setInfo(const std::string& key, const double& value)
-{
-    impl->info->write(key, value);
-}
-
-
-template<> void YAMLWriter::setInfo(const std::string& key, const bool& value)
-{
-    impl->info->write(key, value);
-}
-
-
-void YAMLWriter::resetInfo(Mapping* info)
-{
-    impl->info = info;
 }

@@ -21,13 +21,13 @@ include(CheckCXXCompilerFlag)
 project(Choreonoid)
 
 # set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules/)
-set(CHOREONOID_VERSION_MAJOR 1)
-set(CHOREONOID_VERSION_MINOR 8)
+set(CHOREONOID_VERSION_MAJOR 2)
+set(CHOREONOID_VERSION_MINOR 1)
 set(CHOREONOID_VERSION_PATCH 0)
 set(CHOREONOID_VERSION ${CHOREONOID_VERSION_MAJOR}.${CHOREONOID_VERSION_MINOR})
 set(CHOREONOID_VERSION_STRING ${CHOREONOID_VERSION}.${CHOREONOID_VERSION_PATCH})
-set(CHOREONOID_VERSION_ID "0x010800")
-set(CHOREONOID_INTERNAL_VERSION 1)
+set(CHOREONOID_VERSION_ID "0x020100")
+set(CHOREONOID_INTERNAL_VERSION 3)
 
 set(CHOREONOID_VERSION_SUBDIR choreonoid-${CHOREONOID_VERSION})
 set(CHOREONOID_BIN_SUBDIR bin)
@@ -91,12 +91,17 @@ set(CNOID_SHARE_DIR ${CHOREONOID_SHARE_DIR})
 set(CNOID_SOURCE_SHARE_DIR ${CHOREONOID_SOURCE_SHARE_DIR})
 set(CNOID_BINARY_SHARE_DIR ${CHOREONOID_BINARY_SHARE_DIR})
 
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # C++ version
 if(NOT CMAKE_CXX_STANDARD)
   set(cxx_standard 11)
   if(NOT CMAKE_VERSION VERSION_LESS 3.8.0) # CMake 3.8 or later is required to enable C++17
     if(UNIX)
-      check_cxx_compiler_flag("-std=c++17" has_cpp17)
+      # C++17 support of GCC 7 is experimental
+      if(NOT CMAKE_COMPILER_IS_GNUCC OR CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8)
+	check_cxx_compiler_flag("-std=c++17" has_cpp17)
+      endif()
     elseif(MSVC)
       check_cxx_compiler_flag("/std:c++17" has_cpp17)
     endif()
@@ -116,7 +121,6 @@ if(NOT CMAKE_CXX_STANDARD)
   endif()
   set(CMAKE_CXX_STANDARD ${cxx_standard} CACHE STRING "C++ version number. Specify either 17, 14 or 11.")
 endif()
-
 
 if(UNIX)
   if(CMAKE_COMPILER_IS_GNUCC)
@@ -165,7 +169,7 @@ endif()
 
 if(MSVC)
   set(CHOREONOID_DEFAULT_FVISIBILITY_HIDDEN OFF)
-  set(compiler_general_options "/MP /source-charset:utf-8 /wd4250 /wd4251 /wd4275 /wd4819 /wd4800 /wd4018 /wd4244 /wd4267")
+  set(compiler_general_options "/MP /source-charset:utf-8 /wd4018 /wd4068 /wd4244 /wd4250 /wd4251 /wd4267 /wd4275 /wd4800 /wd4819")
   set(compiler_release_options "/O2 /Ob2 /Oi /Gy /GS- /fp:fast")
 
   if(${MSVC_VERSION} GREATER_EQUAL 1915)
@@ -213,7 +217,7 @@ if(MSVC)
   set(CHOREONOID_USE_SUBSYSTEM_CONSOLE ${USE_SUBSYSTEM_CONSOLE})
 
   set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS
-    NOMINMAX _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
+    NOMINMAX _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 endif()
 
 set(ADDITIONAL_CXX_FLAGS ${ADDITIONAL_CXX_FLAGS} CACHE STRING "Additional c++ compiler optimization flags")
@@ -261,6 +265,8 @@ function(install_runtime_dlls dll_dir)
 	if(conf STREQUAL general)
 	  if(EXISTS ${dll_dir}/${filename}.dll)
 	    install(PROGRAMS ${dll_dir}/${filename}.dll DESTINATION bin ${OPTIONAL_FLAG})
+	  else()
+	    # message(STATUS "${dll_dir}/${filename}.dll not found!")
 	  endif()
 	elseif(conf STREQUAL optimized)
 	  if(EXISTS ${dll_dir}/${filename}.dll)
@@ -297,7 +303,7 @@ if(UNIX)
 
   option(ENABLE_GPERFTOOLS_PROFILER "Enable the CPU profiler of the Google Performance Tools")
   if(ENABLE_GPERFTOOLS_PROFILER)
-    pkg_check_modules(GPREFTOOLS_PROFILER libprofiler)
+    pkg_check_modules(GPREFTOOLS_PROFILER libprofiler libtcmalloc QUIET)
     if(NOT GPREFTOOLS_PROFILER_FOUND)
       message(FATAL_ERROR "libprofiler is not found")
     endif()
@@ -381,13 +387,11 @@ endif()
 # Python
 if(WIN32)
   option(ENABLE_PYTHON "Enable Python" OFF)
-  set(USE_BUNDLED_PYBIND11_DEFAULT ON)
 else()
   option(ENABLE_PYTHON "Enable Python" ON)
-  set(USE_BUNDLED_PYBIND11_DEFAULT OFF)
 endif()
 
-option(USE_BUNDLED_PYBIND11 "Use the Pybind11 library bundled with Choreonoid" ${USE_BUNDLED_PYBIND11_DEFAULT})
+option(USE_BUNDLED_PYBIND11 "Use the Pybind11 library bundled with Choreonoid" ON)
 
 option(USE_PYTHON3 "Use Python version 3 instead of version 2" ON)
 # for Config.h
@@ -407,6 +411,7 @@ if(ENABLE_PYTHON)
   if(USE_PYTHON3)
     find_package(PythonLibs 3 REQUIRED)
   else()
+    set(Python_ADDITIONAL_VERSIONS 2.7)
     find_package(PythonLibs 2 REQUIRED)
     if(NOT CMAKE_CXX_STANDARD LESS 17)
       message(WARNING "C++14 is used when Python2 is used.")
@@ -429,7 +434,7 @@ if(ENABLE_PYTHON)
     set(PYBIND11_INCLUDE_DIRS ${pybind11_INCLUDE_DIRS})
     list(APPEND CHOREONOID_SDK_INCLUDE_DIRS ${PYBIND11_INCLUDE_DIRS})
   else()
-    set(PYBIND11_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/pybind11-2.6.1/include)
+    set(PYBIND11_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/pybind11-2.10.3/include)
     if(INSTALL_SDK)
       install(DIRECTORY ${PYBIND11_INCLUDE_DIRS}/pybind11 DESTINATION ${CHOREONOID_HEADER_SUBDIR})
     else()
@@ -501,7 +506,7 @@ if(MSVC)
     ${Boost_IOSTREAMS_LIBRARY} ${Boost_ZLIB_LIBRARY})
 endif()
 
-# eigen
+# Eigen
 if(MSVC)
   set(USE_BUNDLED_EIGEN_DEFAULT ON)
 else()
@@ -526,6 +531,36 @@ endif()
 
 include_directories(${EIGEN3_INCLUDE_DIRS})
 
+# FreeType
+if(NOT MSVC)
+  option(ENABLE_FREE_TYPE "Enable FreeType" ON)
+  if(ENABLE_FREE_TYPE)
+    pkg_check_modules(FreeType2 freetype2 REQUIRED IMPORTED_TARGET)
+  endif()
+else()
+  option(ENABLE_FREE_TYPE "Enable FreeType" OFF)
+  if(ENABLE_FREE_TYPE)
+    file(GLOB freetype_dirs
+      "c:/Program Files/freetype/lib/cmake/freetype*"
+      "c:/local/freetype*/lib/cmake/freetype*"
+      "d:/local/freetype*/lib/cmake/freetype*")
+    find_package(freetype HINTS ${freetype_dirs} REQUIRED)
+    if(freetype_FOUND)
+      cmake_path(GET freetype_DIR PARENT_PATH freetype_dir1)
+      cmake_path(GET freetype_dir1 PARENT_PATH freetype_dir2)
+      cmake_path(GET freetype_dir2 PARENT_PATH freetype_ROOT_DIR)
+      message(STATUS "Detecting FreeType ${freetype_VERSION} at ${freetype_ROOT_DIR}.")
+      if(false) # Enable this if you want to use the DLL version of freetype
+	get_target_property(freetype_dll_release freetype IMPORTED_LOCATION_RELEASE)
+	get_target_property(freetype_dll_debug freetype IMPORTED_LOCATION_DEBUG)
+	install_runtime_dlls(${freetype_ROOT_DIR}/bin
+	  optimized ${freetype_dll_release} debug ${freetype_dll_debug})
+      endif()
+    endif()
+  endif()
+endif()
+set(CNOID_ENABLE_FREE_TYPE ${ENABLE_FREE_TYPE})
+
 if(ENABLE_GUI)
   # Qt
   include(cmake/ChoreonoidFindQt.cmake)
@@ -545,10 +580,10 @@ if(ENABLE_GUI)
       optimized icuuc51 debug icuuc51d
       optimized icudt51 debug icudt51d
       # for the Qt 5.3 binary package
-      general icuin52 general icuuc52 general icudt52
-      general icuin53 general icuuc53 general icudt53
-      general icuin54 general icuuc54 general icudt54
-      general icuin55 general icuuc55 general icudt55
+      general icuin52 icuuc52 icudt52
+      general icuin53 icuuc53 icudt53
+      general icuin54 icuuc54 icudt54
+      general icuin55 icuuc55 icudt55
       )
     # It may be better to use the windeployqt command for the following process.
     # See the Qt manual on the Windows deployment.
@@ -573,14 +608,20 @@ if(ENABLE_GUI)
 endif()
 
 # Assimp
-if(MSVC AND (NOT DEFINED ENABLE_ASSIMP))
-  file(GLOB assimp_dirs
-    "c:/Program Files/Assimp/lib/cmake/assimp-*"
-    "c:/local/Assimp*/lib/cmake/assimp-*"
-    "d:/local/Assimp*/lib/cmake/assimp-*")
-  find_package(assimp QUIET HINTS ${assimp_dirs})
-else()
+if(NOT MSVC)
   find_package(assimp)
+else()
+  # Try to detect assmp automatically when the initial configuration
+  if((NOT DEFINED ENABLE_ASSIMP) OR ENABLE_ASSIMP)
+    file(GLOB assimp_dirs
+      "c:/Program Files/Assimp/lib/cmake/assimp-*"
+      "c:/local/Assimp*/lib/cmake/assimp-*"
+      "d:/local/Assimp*/lib/cmake/assimp-*")
+    find_package(assimp HINTS ${assimp_dirs})
+    if(assimp_FOUND)
+      message(STATUS "Detecting Assimp ${assimp_VERSION} at ${ASSIMP_ROOT_DIR}.")
+    endif()
+  endif()
 endif()
 
 if(assimp_FOUND)
@@ -589,22 +630,23 @@ else()
   set(is_assimp_enabled OFF)
 endif()
 option(ENABLE_ASSIMP "Enable Assimp functions" ${is_assimp_enabled})
+
 if(ENABLE_ASSIMP)
   if(NOT assimp_FOUND)
-    message(FATAL_ERROR "Please specify the directory containing the CMake config files of the ASSIMP library to ASSIMP_DIR.")
+    message(FATAL_ERROR "Please specify the directory containing the CMake config files of the ASSIMP library to assimp_DIR.")
   endif()
-  if(assimp_VERSION_MAJOR GREATER 4)
-    set(ASSIMP_USE_IMPORTED_LIBRARY ON)
-  else()
-    set(ASSIMP_USE_IMPORTED_LIBRARY OFF)
+  if(MSVC)
+    if(assimp_VERSION VERSION_GREATER_EQUAL 5.1.0)
+      # In this case, the value of ASSIMP_LIBRARIES is the imported library name.
+      get_target_property(assimp_dll ${ASSIMP_LIBRARIES} IMPORTED_LOCATION_RELEASE)
+      get_target_property(assimp_dll_debug ${ASSIMP_LIBRARIES} IMPORTED_LOCATION_DEBUG)
+      install_runtime_dlls(${ASSIMP_ROOT_DIR}/bin optimized ${assimp_dll} debug ${assimp_dll_debug})
+    else()
+      include_directories(${ASSIMP_INCLUDE_DIRS})
+      link_directories(${ASSIMP_LIBRARY_DIRS})
+      install_runtime_dlls(${ASSIMP_ROOT_DIR}/bin ${ASSIMP_LIBRARIES})
+    endif()
   endif()
-  # Assimp imported library does not work correctly for Assimp 5.0.1
-  set(ASSIMP_USE_IMPORTED_LIBRARY OFF)
-  if(NOT ASSIMP_USE_IMPORTED_LIBRARY)
-    include_directories(${ASSIMP_INCLUDE_DIRS})
-    link_directories(${ASSIMP_LIBRARY_DIRS})
-  endif()
-  install_runtime_dlls(${ASSIMP_ROOT_DIR}/bin ${ASSIMP_LIBRARIES})
 endif()
 
 option(ENABLE_URDF "Enable URDF functions" ON)
@@ -741,10 +783,31 @@ if(NOT USE_BUNDLED_LIBYAML)
   pkg_check_modules(LIBYAML yaml-0.1)
 endif()
 if((NOT LIBYAML_FOUND) OR USE_BUNDLED_LIBYAML)
-  add_subdirectory(thirdparty/yaml-0.1.7)
-  set(LIBYAML_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/yaml-0.1.7/include)
-  set(LIBYAML_LIBRARY_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/yaml-0.1.7/lib)
+  set(libyaml_dir thirdparty/libyaml-0.2.5)
+  add_subdirectory(${libyaml_dir})
+  set(LIBYAML_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/${libyaml_dir}/include)
+  set(LIBYAML_LIBRARY_DIRS "")
   set(LIBYAML_LIBRARIES yaml)
+endif()
+
+# zlib
+if(MSVC)
+  include_directories(${PROJECT_SOURCE_DIR}/thirdparty/zlib-1.2.13)
+  add_subdirectory(thirdparty/zlib-1.2.13)
+endif()
+
+# libzip
+if(NOT MSVC)
+  pkg_check_modules(libzip libzip)
+  if(NOT libzip_FOUND)
+    message(FATAL_ERROR "libzip is not found.")
+  endif()
+  include_directories(${libzip_INCLUDE_DIRS})
+  link_directories(${libzip_LIBRARY_DIRS})
+else()
+  include_directories(${PROJECT_SOURCE_DIR}/thirdparty/libzip-1.9.2/lib)
+  add_subdirectory(thirdparty/libzip-1.9.2)
+  set(libzip_LIBRARIES zip)
 endif()
 
 # png
@@ -760,9 +823,8 @@ endif()
 if(PNG_FOUND AND NOT USE_BUNDLED_LIBPNG)
   list(APPEND CHOREONOID_SDK_INCLUDE_DIRS ${PNG_INCLUDE_DIRS})
 else()
-  set(PNG_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/thirdparty/lpng1232" "${PROJECT_SOURCE_DIR}/thirdparty/zlib123")
+  set(PNG_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/thirdparty/lpng1232)
   set(PNG_LIBRARIES png zlib)
-  add_subdirectory(thirdparty/zlib123)
   add_subdirectory(thirdparty/lpng1232)
 endif()
 

@@ -91,7 +91,7 @@ public:
     vector<MprVariableListPtr> variableLists;
 
     bool isEnabled;
-    bool isControlActive;
+    bool isActiveControlState;
     typedef MprProgram::iterator Iterator;
     Iterator iterator;
 
@@ -187,7 +187,7 @@ MprControllerItemBase::Impl::Impl(MprControllerItemBase* self)
     : self(self)
 {
     isEnabled = true;
-    isControlActive = false;
+    isActiveControlState = false;
     speedRatio = 1.0;
     currentLog = new MprControllerLog;
 }
@@ -287,13 +287,13 @@ bool MprControllerItemBase::initialize(ControllerIO* io)
         return false;
     }
     
-    impl->isControlActive = false;
+    impl->isActiveControlState = false;
     if(impl->initialize(io)){
         if(onInitialize(io)){
-            impl->isControlActive = true;
+            impl->isActiveControlState = true;
         }
     }
-    return impl->isControlActive;
+    return impl->isActiveControlState;
 }    
 
 
@@ -350,15 +350,10 @@ bool MprControllerItemBase::Impl::initialize(ControllerIO* io)
     iterator = currentProgram->begin();
 
     auto body = io->body();
-    ioDevice = body->findDevice<DigitalIoDevice>();
 
+    ioDevice = body->findDevice<DigitalIoDevice>();
     if(ioDevice){
-        // Reset all the signals
-        const int n = ioDevice->numSignalLines();
-        for(int i=0; i < n; ++i){
-            ioDevice->setOut(i, false, false);
-            ioDevice->setIn(i, false, false);
-        }
+        ioDevice->resetAllSignals();
     }
 
     isLogEnabled = io->enableLog();
@@ -650,7 +645,7 @@ bool MprControllerItemBase::control()
 
 bool MprControllerItemBase::Impl::control()
 {
-    if(!isControlActive){
+    if(!isActiveControlState){
         return false;
     }
 
@@ -687,7 +682,7 @@ bool MprControllerItemBase::Impl::control()
             hasNextStatement = (iterator != currentProgram->end());
         }
         if(!hasNextStatement){
-            isControlActive = false;
+            isActiveControlState = false;
             break;
         }
 
@@ -710,7 +705,7 @@ bool MprControllerItemBase::Impl::control()
             } else {
                 auto& interpret = p->second;
                 if(!interpret(statement)){
-                    isControlActive = false;
+                    isActiveControlState = false;
                     if(isLogEnabled){
                         currentLog->isErrorState_ = true;
                     }
@@ -718,7 +713,7 @@ bool MprControllerItemBase::Impl::control()
                                        statement->label(0)) << endl;
                     break;
                 }
-                isControlActive = true;
+                isActiveControlState = true;
             }
         }
         
@@ -726,10 +721,10 @@ bool MprControllerItemBase::Impl::control()
     }
 
     if(isLogEnabled && stateChanged){
-        io->outputLog(new MprControllerLog(*currentLog));
+        io->outputLogFrame(new MprControllerLog(*currentLog));
     }
         
-    return isControlActive;
+    return isActiveControlState;
 }
 
 
@@ -785,6 +780,18 @@ void MprControllerItemBase::stop()
 bool MprControllerItemBase::onStop()
 {
     return true;
+}
+
+
+void MprControllerItemBase::setActiveControlState(bool on)
+{
+    impl->isActiveControlState = on;
+}
+
+
+bool MprControllerItemBase::isActiveControlState() const
+{
+    return impl->isActiveControlState;
 }
 
 
@@ -1097,15 +1104,20 @@ bool MprControllerItemBase::Impl::interpretAssignStatement(MprAssignStatement* s
     while(pos != end){
         if(!isNextTermOperator){
             auto pos0 = pos;
-            if(auto term = getTermValue(pos, end)){
-                termValues.push_back(*term);
-                termStrings.push_back(string(pos0, pos));
+            auto termValue = getTermValue(pos, end);
+            string termString(pos0, pos);
+            if(termValue){
+                termValues.push_back(*termValue);
+                termStrings.push_back(termString);
                 isNextTermOperator = true;
             } else {
-                if(regex_search(pos, end, match, termPattern)){
+                if(termString.empty()){
+                    termString = string(pos0, end);
+                }
+                if(regex_search(termString, match, termPattern)){
                     invalidTerm = match.str(1);
                 } else {
-                    invalidTerm = string(match[0].first, match[0].second);
+                    invalidTerm = termString;
                 }
                 isValidExpression = false;
             }
@@ -1126,11 +1138,13 @@ bool MprControllerItemBase::Impl::interpretAssignStatement(MprAssignStatement* s
         }
     }
 
-    if(termValues.empty()){
-        isValidExpression = false;
-    } else if(!isNextTermOperator){
-        io->os() << format(_("Expression ends with operator {0}."), operators.back()) << endl;
-        isValidExpression = false;
+    if(isValidExpression){
+        if(termValues.empty()){
+            isValidExpression = false;
+        } else if(!isNextTermOperator){
+            io->os() << format(_("Expression ends with operator {0}."), operators.back()) << endl;
+            isValidExpression = false;
+        }
     }
     if(!isValidExpression){
         return false;
@@ -1289,12 +1303,16 @@ bool MprControllerItemBase::Impl::interpretDelayStatement(MprDelayStatement* sta
 
 void MprControllerItemBase::doPutProperties(PutPropertyFunction& putProperty)
 {
+    ControllerItem::doPutProperties(putProperty);
     putProperty(_("Speed ratio"), impl->speedRatio, changeProperty(impl->speedRatio));
 }
 
 
 bool MprControllerItemBase::store(Archive& archive)
 {
+    if(!ControllerItem::store(archive)){
+        return false;
+    }
     archive.write("enabled", impl->isEnabled);
     archive.write("speed_ratio", impl->speedRatio);
     return true;
@@ -1303,12 +1321,11 @@ bool MprControllerItemBase::store(Archive& archive)
 
 bool MprControllerItemBase::restore(const Archive& archive)
 {
-    archive.read("enabled", impl->isEnabled);
-
-    if(!archive.read("speed_ratio", impl->speedRatio)){
-        archive.read("speedRatio", impl->speedRatio); // old
+    if(!ControllerItem::restore(archive)){
+        return false;
     }
-    
+    archive.read("enabled", impl->isEnabled);
+    archive.read({ "speed_ratio", "speedRatio"}, impl->speedRatio);
     return true;
 }
 

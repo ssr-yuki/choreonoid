@@ -1,7 +1,3 @@
-/**
-   \author Shin'ichiro Nakaoka
-*/
-
 #include "DyWorld.h"
 
 using namespace std;
@@ -28,6 +24,16 @@ DyWorldBase::DyWorldBase()
 DyWorldBase::~DyWorldBase()
 {
 
+}
+
+
+void DyWorldBase::clearBodies()
+{
+    nameToBodyMap.clear();
+    bodiesWithVirtualJointForces_.clear();
+    subBodies_.clear();
+    bodies_.clear();
+    hasHighGainDynamics_ = false;
 }
 
 
@@ -137,16 +143,6 @@ int DyWorldBase::addBody(DyBody* body)
     }
 
     return index;
-}
-
-
-void DyWorldBase::clearBodies()
-{
-    bodies_.clear();
-    bodiesWithVirtualJointForces_.clear();
-    subBodies_.clear();
-    nameToBodyMap.clear();
-    hasHighGainDynamics_ = false;
 }
 
 

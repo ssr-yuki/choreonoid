@@ -87,34 +87,43 @@ void StdBodyWriter::setMessageSink(std::ostream& os)
 
 void StdBodyWriter::setExtModelFileMode(int mode)
 {
-    switch(mode){
-    case EmbedModels:
-        impl->sceneWriter.setExtModelFileMode(StdSceneWriter::EmbedModels);
-        break;
-    case LinkToOriginalModelFiles:
-        impl->sceneWriter.setExtModelFileMode(StdSceneWriter::LinkToOriginalModelFiles);
-        break;
-    case ReplaceWithStdSceneFiles:
-        impl->sceneWriter.setExtModelFileMode(StdSceneWriter::ReplaceWithStdSceneFiles);
-        break;
-    case ReplaceWithObjModelFiles:
-        impl->sceneWriter.setExtModelFileMode(StdSceneWriter::ReplaceWithObjModelFiles);
-        break;
-    default:
-        break;
-    }
+    impl->sceneWriter.setExtModelFileMode(mode);
 }
 
 
 int StdBodyWriter::extModelFileMode() const
 {
-    switch(impl->sceneWriter.extModelFileMode()){
-    case StdSceneWriter::EmbedModels: return EmbedModels;
-    case StdSceneWriter::LinkToOriginalModelFiles: return LinkToOriginalModelFiles;
-    case StdSceneWriter::ReplaceWithStdSceneFiles: return ReplaceWithStdSceneFiles;
-    case StdSceneWriter::ReplaceWithObjModelFiles: return ReplaceWithObjModelFiles;
-    default: return -1;
-    }
+    return impl->sceneWriter.extModelFileMode();
+}
+
+
+void StdBodyWriter::setOriginalShapeExtModelFileUriRewritingEnabled(bool on)
+{
+    impl->sceneWriter.setOriginalSceneExtModelFileUriRewritingEnabled(on);
+}
+
+
+bool StdBodyWriter::isOriginalShapeExtModelFileUriRewritingEnabled() const
+{
+    return impl->sceneWriter.isOriginalSceneExtModelFileUriRewritingEnabled();
+}
+
+
+void StdBodyWriter::setOriginalBaseDirectory(const std::string& directory)
+{
+    impl->sceneWriter.setOriginalBaseDirectory(directory);
+}
+
+
+void StdBodyWriter::setTransformIntegrationEnabled(bool on)
+{
+    impl->sceneWriter.setTransformIntegrationEnabled(on);
+}
+
+
+bool StdBodyWriter::isTransformIntegrationEnabled() const
+{
+    return impl->sceneWriter.isTransformIntegrationEnabled();
 }
 
 
@@ -127,9 +136,12 @@ bool StdBodyWriter::writeBody(Body* body, const std::string& filename)
 bool StdBodyWriter::Impl::writeBody(Body* body, const std::string& filename)
 {
     bool result = false;
-    
-    auto directory = filesystem::path(fromUTF8(filename)).parent_path().generic_string();
-    sceneWriter.setBaseDirectory(directory);
+
+    sceneWriter.clear();
+
+    filesystem::path path(fromUTF8(filename));
+    sceneWriter.setMainSceneName(toUTF8(path.stem().generic_string()));
+    sceneWriter.setOutputBaseDirectory(toUTF8(path.parent_path().generic_string()));
 
     updateDeviceWriteFunctions();
 
@@ -144,6 +156,10 @@ bool StdBodyWriter::Impl::writeBody(Body* body, const std::string& filename)
             yamlWriter.putNode(topNode);
             result = true;
             yamlWriter.closeFile();
+
+            if(sceneWriter.isOriginalSceneExtModelFileUriRewritingEnabled()){
+                sceneWriter.rewriteOriginalSceneExtModelFileUris();
+            }
         }
     }
     
@@ -215,7 +231,7 @@ MappingPtr StdBodyWriter::Impl::writeLink(Link* link)
     node->write("name", link->name(), DOUBLE_QUOTED);
 
     if(auto parent = link->parent()){
-        node->write("parent", link->parent()->name());
+        node->write("parent", link->parent()->name(), DOUBLE_QUOTED);
     }
 
     auto b = link->offsetTranslation();
@@ -228,7 +244,7 @@ MappingPtr StdBodyWriter::Impl::writeLink(Link* link)
     }
 
     if(!link->jointName().empty()){
-        node->write("joint_name", link->jointName());
+        node->write("joint_name", link->jointName(), DOUBLE_QUOTED);
     }
 
     node->write("joint_type", link->jointTypeSymbol());

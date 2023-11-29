@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "App.h"
 #include "AppUtil.h"
 #include "AppConfig.h"
@@ -34,10 +30,12 @@
 #include "MultiSE3SeqItem.h"
 #include "MultiSE3MatrixSeqItem.h"
 #include "Vector3SeqItem.h"
+#include "MultiVector3SeqItem.h"
 #include "ReferencedObjectSeqItem.h"
 #include "CoordinateFrameListItem.h"
 #include "CoordinateFrameItem.h"
 #include "PositionTagGroupItem.h"
+#include "DistanceMeasurementItem.h"
 #include "ViewManager.h"
 #include "ItemTreeView.h"
 #include "ItemPropertyView.h"
@@ -59,10 +57,10 @@
 #include "GeneralSliderView.h"
 #include "VirtualJoystickView.h"
 #include "MainMenu.h"
-#include "GLSceneRenderer.h"
 #include "Licenses.h"
 #include "MovieRecorderBar.h"
 #include "LazyCaller.h"
+#include <cnoid/GLSceneRenderer>
 #include <cnoid/MessageOut>
 #include <cnoid/Config>
 #include <cnoid/ValueTree>
@@ -77,6 +75,7 @@
 #include <QStyleFactory>
 #include <QThread>
 #include <QLibraryInfo>
+#include <regex>
 #include <iostream>
 #include <csignal>
 
@@ -99,7 +98,9 @@ Signal<void()> sigAboutToQuit_;
 
 bool isDoingInitialization_ = true;
 bool isTestMode = false;
+bool isNoWindowMode = false;
 bool ctrl_c_pressed = false;
+bool exitRequested = false;
 
 void onCtrl_C_Input(int)
 {
@@ -155,7 +156,7 @@ public:
     int exec();
     void onMainWindowCloseEvent();
     void onSigOptionsParsed(boost::program_options::variables_map& v);
-    void enableTestMode();
+    void enableMessageViewRedirectToStdOut();
     virtual bool eventFilter(QObject* watched, QEvent* event);
 };
 
@@ -343,12 +344,22 @@ void App::Impl::initialize()
     qapplication->setWindowIcon(
         QIcon(!iconFilename.empty() ? iconFilename.c_str() : ":/Base/icon/choreonoid.svg"));
 
-    FilePathVariableProcessor::systemInstance()->setUserVariables(
-        AppConfig::archive()->findMapping({ "path_variables", "pathVariables" }));
+    auto fpvp = FilePathVariableProcessor::systemInstance();
+    fpvp->restoreUserVariables(AppConfig::archive()->findMapping({ "path_variables", "pathVariables" }));
+    FilePathVariableProcessor::setCurrentInstance(fpvp);
 
     ext = new ExtensionManager("Base", false);
 
     setUTF8ToModuleTextDomain("Util");
+
+    OptionManager& om = ext->optionManager();
+    om.addOption("quit", "stop the application without showing the main window");
+    om.addOption("test-mode", "exit the application when an error occurs and put MessageView text to the standard output");
+    om.addOption("no-window", "Do not show the application window and put MessageView text to the standard output");
+    om.addOption("path-variable", boost::program_options::value<vector<string>>(), "Set a path variable in the format \"name=value\"");
+    om.addOption("list-qt-styles", "list all the available qt styles");
+    om.sigOptionsParsed().connect(
+        [&](boost::program_options::variables_map& v){ onSigOptionsParsed(v); });
 
     mainWindow = MainWindow::initialize(appName, ext);
 
@@ -405,6 +416,7 @@ void App::Impl::initialize()
     MultiSE3SeqItem::initializeClass(ext);
     MultiSE3MatrixSeqItem::initializeClass(ext);
     Vector3SeqItem::initializeClass(ext);
+    MultiVector3SeqItem::initializeClass(ext);
     ReferencedObjectSeqItem::initializeClass(ext);
     SceneItem::initializeClass(ext);
     PointSetItem::initializeClass(ext);
@@ -412,11 +424,11 @@ void App::Impl::initialize()
     AbstractTextItem::initializeClass(ext);
     ScriptItem::initializeClass(ext);
     MessageLogItem::initializeClass(ext);
-    
     LightingItem::initializeClass(ext);
     CoordinateFrameListItem::initializeClass(ext);
     CoordinateFrameItem::initializeClass(ext);
     PositionTagGroupItem::initializeClass(ext);
+    DistanceMeasurementItem::initializeClass(ext);
 
     MovieRecorderBar::initializeClass(ext);
     CaptureBar::initialize(ext);
@@ -429,13 +441,6 @@ void App::Impl::initialize()
     pluginManager->doStartupLoading();
 
     mainWindow->installEventFilter(this);
-
-    OptionManager& om = ext->optionManager();
-    om.addOption("quit", "stop the application without showing the main window");
-    om.addOption("test-mode", "exit the application when an error occurs and put MessageView text to the standard output");
-    om.addOption("list-qt-styles", "list all the available qt styles");
-    om.sigOptionsParsed().connect(
-        [&](boost::program_options::variables_map& v){ onSigOptionsParsed(v); });
 
     /*
       Some plugins such as OpenRTM plugin are driven by a library which tries to catch SIGINT.
@@ -502,8 +507,10 @@ int App::Impl::exec()
         if(mainWindow->isVisible()){
             App::updateGui();
         } else {
-            mainWindow->show();
-            mainWindow->waitForWindowSystemToActivate();
+            if(!isNoWindowMode){
+                mainWindow->show();
+                mainWindow->waitForWindowSystemToActivate();
+            }
         }
     }
 
@@ -525,12 +532,9 @@ int App::Impl::exec()
         returnCode = 1;
     }
 
-    for(Item* item = RootItem::instance()->childItem(); item; ){
-        Item* next = item->nextItem(); // removeFromParentItem() may deallocate item
-        item->removeFromParentItem();
-        item = next;
-    }
-
+    UnifiedEditHistory::instance()->terminateRecording();
+    RootItem::instance()->clearChildren();
+    
     pluginManager->finalizePlugins();
     delete ext;
     delete mainWindow;
@@ -567,7 +571,7 @@ ExtensionManager* App::baseModule()
 bool App::Impl::eventFilter(QObject* watched, QEvent* event)
 {
     if(watched == mainWindow && event->type() == QEvent::Close){
-        if(ctrl_c_pressed || ProjectManager::instance()->tryToCloseProject()){
+        if(ctrl_c_pressed || exitRequested || ProjectManager::instance()->tryToCloseProject()){
             onMainWindowCloseEvent();
             event->accept();
         } else {
@@ -596,10 +600,27 @@ void App::Impl::onMainWindowCloseEvent()
 
 void App::Impl::onSigOptionsParsed(boost::program_options::variables_map& v)
 {
+    if(v.count("no-window")){
+        isNoWindowMode = true;
+        enableMessageViewRedirectToStdOut();
+    }
+    if(v.count("path-variable")){
+        auto fpvp = FilePathVariableProcessor::systemInstance();
+        static std::regex re("^([a-zA-Z][a-zA-Z_0-9]*)=([^;-?[\\]^'{-~]+)$");
+        std::smatch match;
+        for(auto& var : v["path-variable"].as<vector<string>>()){
+            if(regex_match(var, match, re)){
+                string name = match.str(1);
+                string path = match.str(2);
+                fpvp->addUserVariable(name, path);
+            }
+        }
+    }
     if(v.count("quit")){
         doQuit = true;
     } else if(v.count("test-mode")){
-        enableTestMode();
+        isTestMode = true;
+        enableMessageViewRedirectToStdOut();
     } else if(v.count("list-qt-styles")){
         cout << QStyleFactory::keys().join(" ").toStdString() << endl;
         doQuit = true;
@@ -612,6 +633,7 @@ void App::exit(int returnCode)
     if(instance_){
         auto impl = instance_->impl;
         impl->returnCode = returnCode;
+        exitRequested = true;
         if(impl->mainWindow){
             if(!impl->mainWindow->close()){
                 impl->qapplication->exit(returnCode);
@@ -621,17 +643,21 @@ void App::exit(int returnCode)
 }
 
 
-void App::Impl::enableTestMode()
+void App::Impl::enableMessageViewRedirectToStdOut()
 {
-    isTestMode = true;
-    auto mv = instance_->impl->messageView;
-    cout << fromUTF8(mv->messages());
-    cout.flush();
-    mv->sigMessage().connect(
-        [this](const std::string& text){
-            std::cout << fromUTF8(text);
-            std::cout.flush();
-        });
+    static bool isInitialized = false;
+
+    if(!isInitialized){
+        auto mv = instance_->impl->messageView;
+        cout << fromUTF8(mv->messages());
+        cout.flush();
+        mv->sigMessage().connect(
+            [this](const std::string& text){
+                std::cout << fromUTF8(text);
+                std::cout.flush();
+            });
+        isInitialized = true;
+    }
 }
 
 
@@ -650,6 +676,20 @@ void App::checkErrorAndExitIfTestMode()
 SignalProxy<void()> App::sigExecutionStarted()
 {
     return sigExecutionStarted_;
+}
+
+
+SignalProxy<void(QKeyEvent* event)> AppUtil::sigKeyPressed()
+{
+    //! \todo Support top windows other than the main window
+    return instance_->impl->mainWindow->sigKeyPressed();
+}
+
+
+SignalProxy<void(QKeyEvent* event)> AppUtil::sigKeyReleased()
+{
+    //! \todo Support top windows other than the main window
+    return instance_->impl->mainWindow->sigKeyReleased();
 }
 
 
@@ -681,6 +721,12 @@ void App::updateGui()
 void AppUtil::updateGui()
 {
     return App::updateGui();
+}
+
+
+bool AppUtil::isNoWindowMode()
+{
+    return ::isNoWindowMode;
 }
 
 

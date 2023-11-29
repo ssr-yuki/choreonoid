@@ -1,10 +1,7 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "ControllerIO.h"
 #include <cnoid/Tokenizer>
 #include <cnoid/YAMLReader>
+#include <cnoid/MessageOut>
 #include <iostream>
 
 using namespace std;
@@ -14,12 +11,6 @@ using namespace cnoid;
 ControllerIO::~ControllerIO()
 {
 
-}
-
-
-std::string ControllerIO::optionString() const
-{
-    return string();
 }
 
 
@@ -70,44 +61,13 @@ MappingPtr ControllerIO::structuredOptions() const
 }
 
 
+MessageOut* ControllerIO::mout() const
+{
+    return MessageOut::master();
+}
+
+
 std::ostream& ControllerIO::os() const
 {
     return std::cout;
 }
-
-
-double ControllerIO::timeStep() const
-{
-    return 0.0;
-}
-
-
-double ControllerIO::currentTime() const
-{
-    return 0.0;
-}
-
-
-bool ControllerIO::enableLog()
-{
-    return false;
-}
-
-
-void ControllerIO::outputLog(Referenced* frameLog)
-{
-
-}
-
-
-bool ControllerIO::isNoDelayMode() const
-{
-    return false;
-}
-
-
-bool ControllerIO::setNoDelayMode(bool on)
-{
-    return false;
-}
-

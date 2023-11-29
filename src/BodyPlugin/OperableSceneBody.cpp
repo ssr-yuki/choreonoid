@@ -5,6 +5,7 @@
 #include "KinematicsBar.h"
 #include "SimulatorItem.h"
 #include <cnoid/JointPath>
+#include <cnoid/LinkedJointHandler>
 #include <cnoid/CoordinateFrame>
 #include <cnoid/PenetrationBlocker>
 #include <cnoid/MenuManager>
@@ -64,7 +65,10 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
     OperableSceneBody* self;
-    BodyItemPtr bodyItem;
+    // This must not be a smart pointer to avoid a cycline reference.
+    // OperableSceneBody is owned by the corresponding BodyItem object.
+    BodyItem* bodyItem;
+    LinkedJointHandlerPtr linkedJointHandler;
 
     SgUpdate update;
 
@@ -85,6 +89,7 @@ public:
     shared_ptr<PinDragIK> pinDragIK;
     shared_ptr<PenetrationBlocker> penetrationBlocker;
     PositionDraggerPtr positionDragger;
+    OperableSceneLink* sceneLinkForPositionDragger;
     ScopedConnection kinematicsKitConnection;
 
     bool isEditMode;
@@ -110,6 +115,7 @@ public:
     bool dragged;
 
     PositionDraggerPtr linkOriginMarker;
+    vector<bool> linkOriginMarkerVisibilities;
     SgHighlightPtr highlight;
     SgGroupPtr markerGroup;
     CrossMarkerPtr cmMarker;
@@ -135,13 +141,14 @@ public:
     }
 
     void onSceneGraphConnection(bool on);
+    void onBodyItemUpdated();
     void updateSceneModel();
     void onSelectionChanged(bool on);
     void onKinematicStateChanged();
     void onCollisionsUpdated();
     void onCollisionLinkHighlightModeChanged();
     void changeCollisionLinkHighlightMode(bool on);
-    void updateVisibleLinkSelectionMode();
+    void updateVisibleLinkSelectionMode(bool isActive);
     void onLinkOriginsCheckToggled(bool on);
     void onLinkCmsCheckToggled(bool on);
     void enableHighlight(bool on);
@@ -166,6 +173,7 @@ public:
     void updateMarkersAndManipulators(bool on);
     void createPositionDragger();
     void attachPositionDragger(Link* link);
+    void detachPositionDragger();
     void adjustPositionDraggerSize(Link* link, OperableSceneLink* sceneLink);
 
     bool onKeyPressEvent(SceneWidgetEvent* event);
@@ -304,7 +312,10 @@ void OperableSceneLink::Impl::showOrigin(bool on)
 {
     if(on != isOriginShown){
 
-        auto& originMarker = operableSceneBody()->impl->linkOriginMarker;
+        auto sceneBody = operableSceneBody();
+        auto& originMarker = sceneBody->impl->linkOriginMarker;
+        auto& visibilities = sceneBody->impl->linkOriginMarkerVisibilities;
+        int linkIndex = self->link()->index();
 
         if(on){
             if(!originMarker){
@@ -320,12 +331,18 @@ void OperableSceneLink::Impl::showOrigin(bool on)
                 self->addChildOnce(originMarker, update);
             }
             
+            if(linkIndex >= visibilities.size()){
+                visibilities.resize(linkIndex + 1);
+            }
+            visibilities[linkIndex] = true;
+            
         } else {
             if(self->isVisible()){
                 if(originMarker && originMarker->hasParents()){
                     self->removeChild(originMarker, update);
                 }
             }
+            visibilities[linkIndex] = false;
         }
         isOriginShown = on;
     }
@@ -459,6 +476,7 @@ void OperableSceneBody::Impl::initialize()
     pointedSceneLink = nullptr;
     highlightedLink = nullptr;
     targetLink = nullptr;
+    sceneLinkForPositionDragger = nullptr;
 
     isEditMode = false;
     isFocused = false;
@@ -486,7 +504,7 @@ void OperableSceneBody::Impl::initialize()
     virtualElasticStringLine->getOrCreateVertices()->resize(2);
     virtualElasticStringLine->addLine(0, 1);
 
-    self->sigGraphConnection().connect([&](bool on){ onSceneGraphConnection(on);});
+    self->sigGraphConnection().connect([this](bool on){ onSceneGraphConnection(on);});
 }
 
 
@@ -499,52 +517,52 @@ BodyItem* OperableSceneBody::bodyItem()
 void OperableSceneBody::Impl::onSceneGraphConnection(bool on)
 {
     connections.disconnect();
-    connectionToSigLinkSelectionChanged.disconnect();
 
     if(on){
 
         connections.add(
             bodyItem->sigSelectionChanged().connect(
-                [&](bool on){ onSelectionChanged(on); }));
+                [this](bool on){ onSelectionChanged(on); }));
 
         onSelectionChanged(bodyItem->isSelected()); 
 
         connections.add(
             bodyItem->sigUpdated().connect(
-                [&](){
-                    if(isFocused){
-                        updateMarkersAndManipulators(true);
-                    }
-                    updateVisibleLinkSelectionMode();
-                }));
+                [this](){ onBodyItemUpdated(); }));
 
-        updateVisibleLinkSelectionMode();
+        connections.add(
+            bodyItem->sigContinuousKinematicUpdateStateChanged().connect(
+                [this](bool){ onBodyItemUpdated(); }));
 
         connections.add(
             bodyItem->sigKinematicStateChanged().connect(
-                [&](){ onKinematicStateChanged(); }));
+                [this](){ onKinematicStateChanged(); }));
             
         onKinematicStateChanged();
 
         connections.add(
-            bodyItem->getLocationProxy()->sigAttributeChanged().connect(
-                [&](){
-                    bool on = bodyItem->isLocationEditable();
-                    if(!on){
-                        if(highlightedLink){
-                            highlightedLink->enableHighlight(false);
-                            highlightedLink = nullptr;
-                        }
-                        updateMarkersAndManipulators(false);
-                    }
-                }));
-
-        connections.add(
             kinematicsBar->sigCollisionVisualizationChanged().connect(
-                [&](){ onCollisionLinkHighlightModeChanged(); }));
+                [this](){ onCollisionLinkHighlightModeChanged(); }));
         
         onCollisionLinkHighlightModeChanged();
     }
+
+    updateVisibleLinkSelectionMode(on);
+}
+
+
+void OperableSceneBody::Impl::onBodyItemUpdated()
+{
+    bool isUserInputBlocked = bodyItem->isDoingContinuousKinematicUpdate() || bodyItem->isLocationLocked();
+    if(isUserInputBlocked){
+        if(sceneLinkForPositionDragger){
+            detachPositionDragger();
+        }
+    } else if(isFocused){
+        updateMarkersAndManipulators(true);
+    }
+
+    updateVisibleLinkSelectionMode(true);
 }
 
 
@@ -565,8 +583,17 @@ void OperableSceneBody::Impl::updateSceneModel()
     dragMode = DRAG_NONE;
     isDragging = false;
     dragged = false;
-    
+
     self->SceneBody::updateSceneModel();
+
+    // Restore the visibilities of link origin markers
+    int n = std::min(self->numSceneLinks(), (int)linkOriginMarkerVisibilities.size());
+    for(int i=0; i < n; ++i){
+        if(linkOriginMarkerVisibilities[i]){
+            self->operableSceneLink(i)->showOrigin(true);
+        }
+    }
+    linkOriginMarkerVisibilities.resize(n);
 }
 
 
@@ -634,7 +661,7 @@ void OperableSceneBody::Impl::changeCollisionLinkHighlightMode(bool on)
     if(!connectionToSigCollisionsUpdated.connected() && on){
         connectionToSigCollisionsUpdated =
             bodyItem->sigCollisionsUpdated().connect(
-                [&](){ onCollisionsUpdated(); });
+                [this](){ onCollisionsUpdated(); });
         onCollisionsUpdated();
 
     } else if(connectionToSigCollisionsUpdated.connected() && !on){
@@ -670,9 +697,15 @@ void OperableSceneBody::setLinkVisibilities(const std::vector<bool>& visibilitie
 }
 
 
-void OperableSceneBody::Impl::updateVisibleLinkSelectionMode()
+void OperableSceneBody::Impl::updateVisibleLinkSelectionMode(bool isActive)
 {
-    bool newMode = bodyItem->isVisibleLinkSelectionMode();
+    bool newMode;
+    
+    if(isActive){
+        newMode = bodyItem->isVisibleLinkSelectionMode();
+    } else {
+        newMode = false;
+    }
 
     if(newMode != isVisibleLinkSelectionMode){
         
@@ -682,14 +715,16 @@ void OperableSceneBody::Impl::updateVisibleLinkSelectionMode()
             auto bsm = BodySelectionManager::instance();
             connectionToSigLinkSelectionChanged.reset(
                 bsm->sigLinkSelectionChanged(bodyItem).connect(
-                    [&](const std::vector<bool>& selection){
+                    [this](const std::vector<bool>& selection){
                         self->setLinkVisibilities(selection);
                     }));
             self->setLinkVisibilities(bsm->linkSelection(bodyItem));
 
         } else {
             connectionToSigLinkSelectionChanged.disconnect();
-            self->setLinkVisibilities(vector<bool>(self->numSceneLinks(), true));
+            if(isActive){
+                self->setLinkVisibilities(vector<bool>(self->numSceneLinks(), true));
+            }
         }
     }
 }
@@ -724,7 +759,7 @@ void OperableSceneBody::Impl::enableHighlight(bool on)
             doUpdate = !highlight->hasParents();
         }
         if(doUpdate){
-            self->insertEffectGroup(highlight, update);
+            self->insertEffectGroup(highlight, update.withAction(SgUpdate::GeometryModified));
 
             // The following code cannot support the case where
             // the number of links is changed by model update.
@@ -738,7 +773,7 @@ void OperableSceneBody::Impl::enableHighlight(bool on)
         }
     } else {
         if(highlight && highlight->hasParents()){
-            self->removeEffectGroup(highlight, update);
+            self->removeEffectGroup(highlight, update.withAction(SgUpdate::GeometryModified));
 
             // The following code cannot support the case where
             // the number of links is changed by model update.
@@ -810,7 +845,7 @@ bool OperableSceneBody::Impl::ensureZmpMarker()
             Link* footLink = legged->footLink(0);
             auto sceneLink = self->operableSceneLink(footLink->index());
             double radius = sceneLink->impl->calcMarkerRadius();
-            zmpMarker = new SphereMarker(radius, Vector3f(0.0f, 1.0f, 0.0f), 0.3);
+            zmpMarker = new SphereMarker(radius, Vector3f(0.0f, 1.0f, 0.0f), 0.3f);
             zmpMarker->addChild(new CrossMarker(radius * 2.5, Vector3f(0.0f, 1.0f, 0.0f), 2.0f));
             zmpMarker->setName("ZMP");
         }
@@ -1013,7 +1048,7 @@ int OperableSceneBody::Impl::checkLinkKinematicsType(Link* link, bool doUpdateIK
     Link* linkChain = link;
     while(true){
         if(!bodyItemChain->isAttachedToParentBody()){
-            if(!bodyItemChain->isLocationEditable() && linkChain->isFixedToRoot()){
+            if(bodyItemChain->isLocationLocked() && linkChain->isFixedToRoot()){
                 return LinkOperationType::None;
             }
             break;
@@ -1065,21 +1100,21 @@ void OperableSceneBody::Impl::updateMarkersAndManipulators(bool on)
 {
     Link* baseLink = bodyItem->currentBaseLink();
     auto pin = bodyItem->checkPinDragIK();
+    detachPositionDragger();
 
     const int n = self->numSceneLinks();
     for(int i=0; i < n; ++i){
         OperableSceneLink* sceneLink = operableSceneLink(i);
         sceneLink->hideMarker();
-        sceneLink->removeChild(positionDragger, update);
 
         if(on && isEditMode && !activeSimulatorItem){
             Link* link = sceneLink->link();
             if(link == baseLink){
-                sceneLink->showMarker(Vector3f(1.0f, 0.1f, 0.1f), 0.4);
+                sceneLink->showMarker(Vector3f(1.0f, 0.1f, 0.1f), 0.4f);
             } else if(pin){
                 int pinAxes = pin->pinAxes(link);
                 if(pinAxes & (PinDragIK::TRANSFORM_6D)){
-                    sceneLink->showMarker(Vector3f(1.0f, 1.0f, 0.1f), 0.4);
+                    sceneLink->showMarker(Vector3f(1.0f, 1.0f, 0.1f), 0.4f);
                 }
             }
         }
@@ -1102,9 +1137,9 @@ void OperableSceneBody::Impl::createPositionDragger()
         positionDragger->setOverlayMode(true);
     }
     positionDragger->setDisplayMode(PositionDragger::DisplayAlways);
-    positionDragger->sigDragStarted().connect([&](){ onDraggerDragStarted(); });
-    positionDragger->sigPositionDragged().connect([&](){ onDraggerDragged(); });
-    positionDragger->sigDragFinished().connect([&](){ onDraggerDragFinished(); });
+    positionDragger->sigDragStarted().connect([this](){ onDraggerDragStarted(); });
+    positionDragger->sigPositionDragged().connect([this](){ onDraggerDragged(); });
+    positionDragger->sigDragFinished().connect([this](){ onDraggerDragFinished(); });
 }
 
     
@@ -1160,6 +1195,16 @@ void OperableSceneBody::Impl::attachPositionDragger(Link* link)
     
     positionDragger->notifyUpdate(update.withAction(SgUpdate::Modified));
     sceneLink->addChildOnce(positionDragger);
+    sceneLinkForPositionDragger = sceneLink;
+}
+
+
+void OperableSceneBody::Impl::detachPositionDragger()
+{
+    if(sceneLinkForPositionDragger){
+        sceneLinkForPositionDragger->removeChild(positionDragger, update);
+        sceneLinkForPositionDragger = nullptr;
+    }
 }
 
 
@@ -1269,8 +1314,11 @@ bool OperableSceneBody::Impl::onButtonPressEvent(SceneWidgetEvent* event)
     PointedType pointedType = findPointedObject(event->nodePath());
 
     if(pointedType == PT_ZMP && event->button() == Qt::LeftButton){
-        startZmpTranslation(event);
-        return true;
+        if(!bodyItem->isDoingContinuousKinematicUpdate()){
+            startZmpTranslation(event);
+            return true;
+        }
+        return false;
     }    
 
     if(!pointedSceneLink){
@@ -1281,10 +1329,13 @@ bool OperableSceneBody::Impl::onButtonPressEvent(SceneWidgetEvent* event)
     int operationType = LinkOperationType::None;
     bool doEnableHighlight = false;
     auto bsm = BodySelectionManager::instance();
+
+    if(event->button() == Qt::LeftButton || event->button() == Qt::RightButton){
+        bsm->setCurrent(bodyItem, targetLink, true);
+    }
         
     if(event->button() == Qt::RightButton){
         // The context menu is about to be shown
-        bsm->setCurrent(bodyItem, targetLink, true);
         doEnableHighlight = true;
     } else {
         operationType = checkLinkOperationType(pointedSceneLink, true);
@@ -1312,26 +1363,18 @@ bool OperableSceneBody::Impl::onButtonPressEvent(SceneWidgetEvent* event)
         if(event->button() == Qt::LeftButton){
             updateMarkersAndManipulators(true);
 
-            //if(!bodyItem->isAttachedToParentBody()){
-            if(true){
-                bsm->setCurrent(bodyItem, targetLink, true);
-            } else{
-                bsm->setCurrent(
-                    bodyItem->parentBodyItem(),
-                    bodyItem->body()->parentBodyLink(),
-                    true);
+            if(!bodyItem->isDoingContinuousKinematicUpdate()){
+                if(operationType == LinkOperationType::FK){
+                    startFK(event);
+                } else if(operationType == LinkOperationType::IK){
+                    startIK(event);
+                }
             }
-            if(operationType == LinkOperationType::FK){
-                startFK(event);
-                handled = true;
-            } else if(operationType == LinkOperationType::IK){
-                startIK(event);
-                handled = true;
-            }
+            handled = true;
         }
     }
 
-    if(dragMode != DRAG_NONE && highlightedLink){
+    if((dragMode != DRAG_NONE) && highlightedLink){
         highlightedLink->enableHighlight(false);
         self->notifyUpdate(update.withAction(SgUpdate::Modified));
     }
@@ -1556,41 +1599,41 @@ bool OperableSceneBody::Impl::onContextMenuRequest(SceneWidgetEvent* event)
 
     auto menu = event->contextMenu();
     auto locationLockCheck = menu->addCheckItem(_("Lock location"));
-    locationLockCheck->setChecked(!bodyItem->isLocationEditable());
+    locationLockCheck->setChecked(bodyItem->isLocationLocked());
     locationLockCheck->sigToggled().connect(
-        [&](bool on){ bodyItem->setLocationEditable(!on); });
+        [this](bool on){ bodyItem->setLocationLocked(on); });
                     
     activeSimulatorItem = SimulatorItem::findActiveSimulatorItemFor(bodyItem);
     if(activeSimulatorItem){
-        if(pointedSceneLink->link()->isRoot() && bodyItem->isLocationEditable()){
+        if(pointedSceneLink->link()->isRoot() && !bodyItem->isLocationLocked()){
             Action* item1 = menu->addCheckItem(_("Move Forcibly"));
             item1->setChecked(forcedPositionMode == MOVE_FORCED_POSITION);
             item1->sigToggled().connect(
-                [&](bool on){ setForcedPositionMode(MOVE_FORCED_POSITION, on); });
+                [this](bool on){ setForcedPositionMode(MOVE_FORCED_POSITION, on); });
                     
             Action* item2 = menu->addCheckItem(_("Hold Forcibly"));
             item2->setChecked(forcedPositionMode == KEEP_FORCED_POSITION);
             item2->sigToggled().connect(
-                [&](bool on){ setForcedPositionMode(KEEP_FORCED_POSITION, on); });
+                [this](bool on){ setForcedPositionMode(KEEP_FORCED_POSITION, on); });
                     
             menu->addSeparator();
         }
     } else {
         menu->addItem(_("Set Free"))->sigTriggered().connect(
-            [&](){ makeLinkFree(pointedSceneLink); });
+            [this](){ makeLinkFree(pointedSceneLink); });
         menu->addItem(_("Set Base"))->sigTriggered().connect(
-            [&](){ setBaseLink(pointedSceneLink); });
+            [this](){ setBaseLink(pointedSceneLink); });
         menu->addItem(_("Set Translation Pin"))->sigTriggered().connect(
-            [&](){ togglePin(pointedSceneLink, true, false); });
+            [this](){ togglePin(pointedSceneLink, true, false); });
         menu->addItem(_("Set Rotation Pin"))->sigTriggered().connect(
-            [&](){ togglePin(pointedSceneLink, false, true); });
+            [this](){ togglePin(pointedSceneLink, false, true); });
         menu->addItem(_("Set Both Pins"))->sigTriggered().connect(
-            [&](){ togglePin(pointedSceneLink, true, true); });
+            [this](){ togglePin(pointedSceneLink, true, true); });
                 
         menu->addSeparator();
             
         menu->addItem(_("Level Attitude"))->sigTriggered().connect(
-            [&](){ makeLinkAttitudeLevel(pointedSceneLink); });
+            [this](){ makeLinkAttitudeLevel(pointedSceneLink); });
             
         menu->addSeparator();
     }
@@ -1616,7 +1659,7 @@ bool OperableSceneBody::Impl::onContextMenuRequest(SceneWidgetEvent* event)
         originsCheck->setCheckState(Qt::PartiallyChecked);
     }
     menu->addAction(linkOriginAction);
-    originsCheck->sigToggled().connect([&](bool on){ onLinkOriginsCheckToggled(on); });
+    originsCheck->sigToggled().connect([this](bool on){ onLinkOriginsCheckToggled(on); });
 
     auto linkCmAction = new CheckBoxAction(_("Link Center of Masses"));
     int numCmsShown = 0;
@@ -1635,21 +1678,21 @@ bool OperableSceneBody::Impl::onContextMenuRequest(SceneWidgetEvent* event)
         cmsCheck->setCheckState(Qt::PartiallyChecked);
     }
     menu->addAction(linkCmAction);
-    cmsCheck->sigToggled().connect([&](bool on){ onLinkCmsCheckToggled(on); });
+    cmsCheck->sigToggled().connect([this](bool on){ onLinkCmsCheckToggled(on); });
     
     auto item = menu->addCheckItem(_("Center of Mass"));
     item->setChecked(isCmVisible);
-    item->sigToggled().connect([&](bool on){ showCenterOfMass(on); });
+    item->sigToggled().connect([this](bool on){ showCenterOfMass(on); });
             
     item = menu->addCheckItem(_("Center of Mass Projection"));
     item->setChecked(isCmProjectionVisible);
-    item->sigToggled().connect([&](bool on){ showCmProjection(on); });
+    item->sigToggled().connect([this](bool on){ showCmProjection(on); });
 
 
     if(checkLeggedBody()){
         item = menu->addCheckItem(_("ZMP"));
         item->setChecked(isZmpVisible);
-        item->sigToggled().connect([&](bool on){ showZmp(on); });
+        item->sigToggled().connect([this](bool on){ showZmp(on); });
     }
 
     menu->setPath("/");
@@ -1782,6 +1825,10 @@ void OperableSceneBody::Impl::startFK(SceneWidgetEvent* event)
     dragProjector.setInitialPosition(targetLink->position());
     
     orgJointPosition = targetLink->q();
+
+    if(!linkedJointHandler){
+        linkedJointHandler = LinkedJointHandler::findOrCreateLinkedJointHandler(bodyItem->body());
+    }
     
     if(targetLink->isRevoluteJoint()){
         dragProjector.setRotationAxis(targetLink->R() * targetLink->a());
@@ -1802,7 +1849,10 @@ void OperableSceneBody::Impl::dragFKRotation(SceneWidgetEvent* event)
 {
     if(dragProjector.dragRotation(event)){
         double q = orgJointPosition + dragProjector.rotationAngle();
-        targetLink->q() = stdx::clamp(q, targetLink->q_lower(), targetLink->q_upper());
+        double q_clamped = stdx::clamp(q, targetLink->q_lower(), targetLink->q_upper());
+        if(linkedJointHandler->updateLinkedJointDisplacements(targetLink, q_clamped)){
+            linkedJointHandler->limitLinkedJointDisplacementsWithinMovableRanges(targetLink);
+        }
         bodyItem->notifyKinematicStateChange(true);
         dragged = true;
     }
@@ -1813,7 +1863,10 @@ void OperableSceneBody::Impl::dragFKTranslation(SceneWidgetEvent* event)
 {
     if(dragProjector.dragTranslation(event)){
         double q = orgJointPosition + dragProjector.translationAxis().dot(dragProjector.translation());
-        targetLink->q() = stdx::clamp(q, targetLink->q_lower(), targetLink->q_upper());
+        double q_clamped = stdx::clamp(q, targetLink->q_lower(), targetLink->q_upper());
+        if(linkedJointHandler->updateLinkedJointDisplacements(targetLink, q_clamped)){
+            linkedJointHandler->limitLinkedJointDisplacementsWithinMovableRanges(targetLink);
+        }
         bodyItem->notifyKinematicStateChange(true);
         dragged = true;
     }

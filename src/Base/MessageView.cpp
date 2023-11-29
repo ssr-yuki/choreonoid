@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "MessageView.h"
 #include "MainWindow.h"
 #include "ViewManager.h"
@@ -39,6 +35,7 @@ struct PendingMessage
 vector<PendingMessage> initialPendingMessages;
 
 int flushingRef = 0;
+int blockFlushCounter = 0;
 
 const bool PUT_COUT_TOO = false;
 
@@ -286,7 +283,7 @@ MessageView::Impl::Impl(MessageView* self) :
 
     MessageOut::master()->addSink(
         [this](const std::string& message, int type){
-            put(message, type, false, false, true);
+            put(message, type, false, false, true, false);
         });
 
     MessageOut::interactive()->addSink(
@@ -294,7 +291,7 @@ MessageView::Impl::Impl(MessageView* self) :
             switch(type){
             case MessageOut::Normal:
             case MessageOut::Highlighted:
-                put(message, type, false, false, true);
+                put(message, type, false, false, true, false);
                 break;
             case MessageOut::Warning:
                 showWarningDialog(message);
@@ -667,18 +664,32 @@ void MessageView::flush()
 
 void MessageView::Impl::flush()
 {
-    ++flushingRef;
-        
-    QCoreApplication::processEvents(
-        QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers, 1.0);
-    
-    --flushingRef;
+    if(blockFlushCounter == 0){
+        ++flushingRef;
+        QCoreApplication::processEvents(
+            QEventLoop::ExcludeUserInputEvents | QEventLoop::ExcludeSocketNotifiers, 1.0);
+        --flushingRef;
+    }
 }
 
 
 bool MessageView::isFlushing()
 {
     return (flushingRef > 0);
+}
+
+
+void MessageView::blockFlush()
+{
+    ++blockFlushCounter;
+}
+
+
+void MessageView::unblockFlush()
+{
+    if(blockFlushCounter > 0){
+        --blockFlushCounter;
+    }
 }
 
 
@@ -1139,14 +1150,20 @@ void cnoid::showMessageBox(const std::string& message)
 
 bool cnoid::showWarningDialog(const std::string& message, bool doConfirmation)
 {
+    return showWarningDialog(_("Warning"), message, doConfirmation);
+}
+
+
+bool cnoid::showWarningDialog(const std::string& caption, const std::string& message, bool doConfirmation)
+{
     bool result = true;
     
     if(!doConfirmation){
-        QMessageBox::warning(MainWindow::instance(), _("Warning"), message.c_str());
+        QMessageBox::warning(MainWindow::instance(), caption.c_str(), message.c_str());
     } else {
         QMessageBox mbox(MainWindow::instance());
         mbox.setIcon(QMessageBox::Warning);
-        mbox.setWindowTitle(_("Warning"));
+        mbox.setWindowTitle(caption.c_str());
         mbox.setText(message.c_str());
         mbox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
         if(mbox.exec() != QMessageBox::Ok){

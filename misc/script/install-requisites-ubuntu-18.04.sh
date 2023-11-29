@@ -16,8 +16,10 @@ libyaml-dev \
 libfmt-dev \
 gettext \
 zlib1g-dev \
+libzip-dev \
 libjpeg-dev \
 libpng-dev \
+libfreetype6-dev \
 qt5-default \
 libqt5x11extras5-dev \
 libqt5svg5-dev \

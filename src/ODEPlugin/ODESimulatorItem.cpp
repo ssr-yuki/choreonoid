@@ -1,8 +1,3 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "ODESimulatorItem.h"
 #include <cnoid/ItemManager>
 #include <cnoid/PutPropertyFunction>
@@ -702,10 +697,11 @@ void ODEBody::createBody(ODESimulatorItemImpl* simImpl)
     setKinematicStateToODE(simImpl->doFlipYZ);
 
     if(simImpl->useWorldCollisionDetector){
-        simImpl->bodyCollisionDetector.addBody(
-            body, bodyItem()->isSelfCollisionDetectionEnabled(),
-            [&](Link* link, CollisionDetector::GeometryHandle geometry){
-                return odeLinks[link->index()]; });
+        simImpl->bodyCollisionDetector.setLinkAssociatedObjectFunction(
+            [this](Link* link, CollisionDetector::GeometryHandle geometry){
+                return odeLinks[link->index()];
+            });
+        simImpl->bodyCollisionDetector.addBody(body, bodyItem()->isSelfCollisionDetectionEnabled());
     }
 
     setExtraJoints(simImpl->doFlipYZ);
@@ -735,12 +731,12 @@ void ODEBody::setExtraJoints(bool doFlipYZ)
 
     for(int j=0; j < n; ++j){
 
-        ExtraJoint& extraJoint = body->extraJoint(j);
+        ExtraJoint* extraJoint = body->extraJoint(j);
 
         ODELinkPtr odeLinkPair[2];
         for(int i=0; i < 2; ++i){
             ODELinkPtr odeLink;
-            Link* link = extraJoint.link(i);
+            Link* link = extraJoint->link(i);
             if(link->index() < odeLinks.size()){
                 odeLink = odeLinks[link->index()];
                 if(odeLink->link == link){
@@ -755,21 +751,21 @@ void ODEBody::setExtraJoints(bool doFlipYZ)
         if(odeLinkPair[1]){
             dJointID jointID = 0;
             Link* link = odeLinkPair[0]->link;
-            Vector3 p = link->T() * extraJoint.point(0);
-            Vector3 a = link->R() * extraJoint.axis();
+            Vector3 p = link->T() * extraJoint->point(0);
+            Vector3 a = link->R() * extraJoint->axis();
             if(doFlipYZ){
                 flipYZ(p);
                 flipYZ(a);
             }
 
             // \todo do the destroy management for these joints
-            if(extraJoint.type() == ExtraJoint::EJ_PISTON){
+            if(extraJoint->type() == ExtraJoint::Piston){
                 jointID = dJointCreatePiston(worldID, 0);
                 dJointAttach(jointID, odeLinkPair[0]->bodyID, odeLinkPair[1]->bodyID);
                 dJointSetPistonAnchor(jointID, p.x(), p.y(), p.z());
                 dJointSetPistonAxis(jointID, a.x(), a.y(), a.z());
 
-            } else if(extraJoint.type() == ExtraJoint::EJ_BALL){
+            } else if(extraJoint->type() == ExtraJoint::Ball){
                 jointID = dJointCreateBall(worldID, 0);
                 dJointAttach(jointID, odeLinkPair[0]->bodyID, odeLinkPair[1]->bodyID);
                 dJointSetBallAnchor(jointID, p.x(), p.y(), p.z());
@@ -798,12 +794,12 @@ void ODEBody::setControlValToODE()
     // Skip the root link
     for(size_t i=1; i < odeLinks.size(); ++i){
         switch(odeLinks[i]->link->actuationMode()){
-        case Link::NO_ACTUATION :
+        case Link::StateNone:
             break;
-        case Link::JOINT_TORQUE :
+        case Link::JointTorque:
             odeLinks[i]->setTorqueToODE();
             break;
-        case Link::JOINT_VELOCITY :
+        case Link::JointVelocity :
             odeLinks[i]->setVelocityToODE();
             break;
         default :

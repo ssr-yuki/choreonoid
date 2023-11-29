@@ -1,11 +1,6 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "ControllerItem.h"
-#include "ControllerLogItem.h"
 #include <cnoid/ItemManager>
+#include <cnoid/ReferencedObjectSeqItem>
 #include <cnoid/PutPropertyFunction>
 #include <cnoid/Archive>
 #include "gettext.h"
@@ -35,6 +30,22 @@ ControllerItem::ControllerItem(const ControllerItem& org)
 
 
 ControllerItem::~ControllerItem()
+{
+
+}
+
+
+void ControllerItem::onTreePathChanged()
+{
+    auto bodyItem = findOwnerItem<BodyItem>();
+    if(targetBodyItem_.expired() || bodyItem != targetBodyItem_.lock()){
+        targetBodyItem_ = bodyItem;
+        onTargetBodyItemChanged(bodyItem);
+    }
+}
+
+
+void ControllerItem::onTargetBodyItemChanged(BodyItem* /* bodyItem */)
 {
 
 }
@@ -82,12 +93,6 @@ bool ControllerItem::initialize(ControllerIO* io)
 }
 
 
-ControllerLogItem* ControllerItem::createLogItem()
-{
-    return new ControllerLogItem;
-}
-
-
 bool ControllerItem::start()
 {
     return true;
@@ -106,12 +111,6 @@ bool ControllerItem::control()
 }
 
 
-void ControllerItem::log()
-{
-
-}
-
-
 void ControllerItem::output()
 {
 
@@ -121,6 +120,12 @@ void ControllerItem::output()
 void ControllerItem::stop()
 {
 
+}
+
+
+ReferencedObjectSeqItem* ControllerItem::createLogItem()
+{
+    return new ReferencedObjectSeqItem;
 }
 
 

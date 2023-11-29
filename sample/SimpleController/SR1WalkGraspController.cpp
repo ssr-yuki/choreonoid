@@ -1,7 +1,5 @@
 /**
    Sample walking and grasp motion controller for the SR1Hand robot model.
-   This program was ported from the "SampleController" sample of OpenHRP3.
-   @author Shizuko Hattori
 */
    
 #include <cnoid/SimpleController>
@@ -59,10 +57,11 @@ public:
             string filename = path.make_preferred().string();
 
             BodyMotion motion;
-            if(!motion.loadStandardYAMLformat(filename)){
+            if(!motion.load(filename)){
                 os << motion.seqMessage() << endl;
                 return false;
             }
+            motion.updateJointPosSeqWithBodyPositionSeq();
             qseq = motion.jointPosSeq();
             if(qseq->numFrames() == 0){
                 os << "Empty motion data." << endl;
@@ -91,7 +90,7 @@ public:
             auto joint = body->joint(i);
             qold[i] = q0[i] = joint->q();
             q1[i] = frame[i];
-            joint->setActuationMode(Link::JOINT_TORQUE);
+            joint->setActuationMode(JointTorque);
             io->enableIO(joint);
         }
 

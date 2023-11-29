@@ -1,7 +1,3 @@
-# @author Shin'ichiro Nakaoka
-
-# set(CMAKE_BUILD_TYPE Debug)
-
 option(BUILD_POSE_SEQ_PLUGIN "Building PoseSeqPlugin" OFF)
 
 if(NOT BUILD_POSE_SEQ_PLUGIN)
@@ -25,7 +21,9 @@ set(sources
   PoseSeqViewBase.cpp
   PoseRollView.cpp
   BodyMotionGenerationBar.cpp
+  BodyKeyPoseSelectionDialog.cpp
   FcpFileLoader.cpp
+  FootFixFilter.cpp
 )
 
 set(headers
@@ -36,6 +34,7 @@ set(headers
   PoseSeqInterpolator.h
   PoseFilters.h
   PoseSeqItem.h
+  PoseRollView.h
   BodyMotionGenerationBar.h
   exportdecl.h
   )
@@ -51,7 +50,7 @@ qt5_add_resources(RC_SRCS PoseSeqPlugin.qrc)
 
 choreonoid_make_gettext_mo_files(${target} mofiles)
 choreonoid_add_plugin(${target} ${sources} ${mofiles} ${RC_SRCS} HEADERS ${headers})
-target_link_libraries(${target} CnoidBodyPlugin)
+target_link_libraries(${target} PUBLIC CnoidBodyPlugin)
 
 if(ENABLE_PYTHON)
   add_subdirectory(pybind11)

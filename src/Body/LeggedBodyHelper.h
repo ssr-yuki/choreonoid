@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_LEGGED_BODY_HELPER_H
 #define CNOID_BODY_LEGGED_BODY_HELPER_H
 
@@ -29,6 +24,12 @@ public:
 
     int numFeet() const { return footInfos.size(); }
 
+    //! The foot link indices should be the same as the following IDs.
+    enum FootID {
+        Left = 0,
+        Right = 1
+    };
+
     Link* footLink(int index) const { return footInfos[index].link; }
 
     Link* kneePitchJoint(int footIndex) const { return footInfos[footIndex].kneePitchJoint; }
@@ -39,23 +40,31 @@ public:
     bool setStance(double width, Link* baseLink);
 
     const Vector3& centerOfSoleLocal(int footIndex) const { return footInfos[footIndex].soleCenter; }
-
     Vector3 centerOfSole(int footIndex) const;
     Vector3 centerOfSoles() const;
 
+    const Vector3& homeCopOfSoleLocal(int footIndex) const { return footInfos[footIndex].homeCop; }
     Vector3 homeCopOfSole(int footIndex) const;
     Vector3 homeCopOfSoles() const;
-        
+
+    const Isometry3& toeOffset(int footIndex) const { return footInfos[footIndex].toeOffset; };
+    
 private:
     BodyPtr body_;
     bool isValid_;
-    struct FootInfo {
+
+    struct FootInfo
+    {
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+        
         LinkPtr link;
         LinkPtr kneePitchJoint;
         Vector3 homeCop;
         Vector3 soleCenter;
+        Isometry3 toeOffset;
     };
-    std::vector<FootInfo> footInfos;
+
+    std::vector<FootInfo, Eigen::aligned_allocator<FootInfo>> footInfos;
 };
 
 typedef ref_ptr<LeggedBodyHelper> LeggedBodyHelperPtr;

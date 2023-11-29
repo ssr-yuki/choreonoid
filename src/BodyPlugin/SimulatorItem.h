@@ -1,8 +1,3 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_PLUGIN_SIMULATOR_ITEM_H
 #define CNOID_BODY_PLUGIN_SIMULATOR_ITEM_H
 
@@ -38,22 +33,13 @@ public:
     int numControllers() const;
     ControllerItem* controller(int index = 0) const;
 
-    /**
-       Call this in the initilization when the shapes are accessed after the initialization
-    */
-    void cloneShapesOnce();
-
     virtual bool initialize(SimulatorItem* simulatorItem, BodyItem* bodyItem);
 
     const std::string& recordItemPrefix() const;
     virtual void initializeRecordBuffers();
     virtual void initializeRecordItems();
 
-    /**
-       Called from the simulation loop thread
-    */
     bool isActive() const;
-    void setActive(bool on);
 
     /**
        Use this instead of Device::notifyStateChange when the state part which
@@ -215,8 +201,7 @@ public:
     /**
        \note This signal is emitted in the simulation thread
     */
-    SignalProxy<void(const std::vector<SimulationBodyPtr>& simulationBodies)>
-        sigSimulationBodyListUpdated();
+    SignalProxy<void(const std::vector<SimulationBodyPtr>& simulationBodies)> sigSimulationBodyListUpdated();
 
     /**
        \note This function should be a pure virtual function

@@ -1,7 +1,3 @@
-/*!
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "../SimulatorItem.h"
 #include "../AISTSimulatorItem.h"
 #include "../SubSimulatorItem.h"
@@ -10,7 +6,8 @@
 #include "../SimulationBar.h"
 #include "../BodyItem.h"
 #include "../SimpleControllerItem.h"
-#include "../ControllerLogItem.h"
+#include "../BodyContactPointLoggerItem.h"
+#include "../BodyContactPointLogItem.h"
 #include <cnoid/PyBase>
 
 using namespace cnoid;
@@ -102,6 +99,13 @@ void exportSimulationClasses(py::module m)
         .value("N_TIME_RANGE_MODES", SimulatorItem::NumTimeRangeModes)
         .export_values();
 
+    py::enum_<SimulatorItem::RealtimeSyncMode>(simulatorItemClass, "RealtimeSyncMode")
+        .value("NonRealtimeSync", SimulatorItem::NonRealtimeSync)
+        .value("CompensatoryRealtimeSync", SimulatorItem::CompensatoryRealtimeSync)
+        .value("ConservativeRealtimeSync", SimulatorItem::ConservativeRealtimeSync)
+        .value("NumRealtimeSyncModes", SimulatorItem::NumRealtimeSyncModes)
+        .export_values();
+
     PyItemList<SimulatorItem>(m, "SimulatorItemList", simulatorItemClass);
 
     py::class_<AISTSimulatorItem, AISTSimulatorItemPtr, SimulatorItem>
@@ -129,15 +133,19 @@ void exportSimulationClasses(py::module m)
         ;
 
     py::enum_<AISTSimulatorItem::DynamicsMode>(aistSimulatorItemClass, "DynamicsMode")
-        .value("FORWARD_DYNAMICS", AISTSimulatorItem::DynamicsMode::FORWARD_DYNAMICS)
-        .value("KINEMATICS", AISTSimulatorItem::DynamicsMode::KINEMATICS)
-        .value("N_DYNAMICS_MODES", AISTSimulatorItem::DynamicsMode::N_DYNAMICS_MODES)
+        .value("ForwardDynamicsMode", AISTSimulatorItem::ForwardDynamicsMode)
+        .value("KinematicsMode", AISTSimulatorItem::KinematicsMode)
+        // deprecated
+        .value("FORWARD_DYNAMICS", AISTSimulatorItem::ForwardDynamicsMode)
+        .value("KINEMATICS", AISTSimulatorItem::KinematicsMode)
         .export_values();
 
     py::enum_<AISTSimulatorItem::IntegrationMode>(aistSimulatorItemClass, "IntegrationMode")
-        .value("EULER_INTEGRATION", AISTSimulatorItem::IntegrationMode::EULER_INTEGRATION)
-        .value("RUNGE_KUTTA_INTEGRATION", AISTSimulatorItem::IntegrationMode::RUNGE_KUTTA_INTEGRATION)
-        .value("N_INTEGRATION_MODES", AISTSimulatorItem::IntegrationMode::N_INTEGRATION_MODES)
+        .value("SemiImplicitEuler", AISTSimulatorItem::SemiImplicitEuler)
+        .value("RungeKutta", AISTSimulatorItem::RungeKutta)
+        // deprecated
+        .value("EULER_INTEGRATION", AISTSimulatorItem::SemiImplicitEuler)
+        .value("RUNGE_KUTTA_INTEGRATION", AISTSimulatorItem::RungeKutta)
         .export_values();
 
     PyItemList<AISTSimulatorItem>(m, "AISTSimulatorItemList");
@@ -226,13 +234,25 @@ void exportSimulationClasses(py::module m)
         .def("setController", &SimpleControllerItem::setController)
         ;
 
-    py::class_<ControllerLogItem, ControllerLogItemPtr, ReferencedObjectSeqItem>(m, "ControllerLogItem")
+    py::class_<BodyContactPointLogItem, BodyContactPointLogItemPtr, ReferencedObjectSeqItem>
+        bodyContactPointLogItem(m, "BodyContactPointLogItem");
+
+    bodyContactPointLogItem
         .def(py::init<>())
-        .def_property_readonly("log", &ControllerLogItem::log)
-        .def("resetLog", &ControllerLogItem::resetLog)
+        .def("getLogFrame", [](BodyContactPointLogItem& self, int frameIndex){ return self.logFrame(frameIndex); })
         ;
 
-    PyItemList<ControllerLogItem>(m, "ControllerLogItemList");
+    py::class_<BodyContactPointLogItem::LogFrame, BodyContactPointLogItem::LogFramePtr>(bodyContactPointLogItem, "LogFrame")
+        .def_property_readonly("bodyContactPoints",
+            [](BodyContactPointLogItem::LogFrame& self){ return self.bodyContactPoints(); })
+        .def("getLinkContactPoints",
+            [](BodyContactPointLogItem::LogFrame& self, int linkIndex){ return self.linkContactPoints(linkIndex); })
+        ;
+
+    py::class_<BodyContactPointLoggerItem, BodyContactPointLoggerItemPtr, ControllerItem>(m, "BodyContactPointLoggerItem")
+        .def(py::init<>())
+        .def("setLogFrameToVisualize", &BodyContactPointLoggerItem::setLogFrameToVisualize)
+        ;
 }
 
 }

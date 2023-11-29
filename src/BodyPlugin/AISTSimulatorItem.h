@@ -1,10 +1,5 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
-#ifndef CNOID_BODYPLUGIN_AIST_SIMULATOR_ITEM_H
-#define CNOID_BODYPLUGIN_AIST_SIMULATOR_ITEM_H
+#ifndef CNOID_BODY_PLUGIN_AIST_SIMULATOR_ITEM_H
+#define CNOID_BODY_PLUGIN_AIST_SIMULATOR_ITEM_H
 
 #include "SimulatorItem.h"
 #include <cnoid/Collision>
@@ -23,8 +18,19 @@ public:
     AISTSimulatorItem();
     virtual ~AISTSimulatorItem();
 
-    enum DynamicsMode { FORWARD_DYNAMICS = 0, KINEMATICS, N_DYNAMICS_MODES };
-    enum IntegrationMode { EULER_INTEGRATION = 0, RUNGE_KUTTA_INTEGRATION, N_INTEGRATION_MODES };
+    enum DynamicsMode {
+        ForwardDynamicsMode,
+        KinematicsMode,
+        FORWARD_DYNAMICS = ForwardDynamicsMode,
+        KINEMATICS = KinematicsMode
+    };
+
+    enum IntegrationMode {
+        SemiImplicitEuler,
+        RungeKutta,
+        EULER_INTEGRATION = SemiImplicitEuler,
+        RUNGE_KUTTA_INTEGRATION = RungeKutta
+    };
 
     void setDynamicsMode(int mode);
     void setIntegrationMode(int mode);
@@ -46,7 +52,7 @@ public:
     [[deprecated("This function does nothing. Set Link::LinkContactState to Link::sensingMode from a controller.")]]
     void setConstraintForceOutputEnabled(bool on);
 
-    void addExtraJoint(ExtraJoint& extraJoint);
+    void addExtraJoint(ExtraJoint* extraJoint);
     void clearExtraJoints();
 
     virtual Vector3 getGravity() const override;
@@ -55,17 +61,18 @@ public:
     virtual void clearForcedPositions() override;
 
     typedef std::function<bool(Link* link1, Link* link2,
-                               const CollisionArray& collisions,
+                               const std::vector<Collision>& collisions,
                                ContactMaterial* contactMaterial)> CollisionHandler;
     
     void registerCollisionHandler(const std::string& name, CollisionHandler handler);
     bool unregisterCollisionHandler(const std::string& name);
 
-    //! \deprecated
+    //[[deprecated]]
     void setFriction(Link* link1, Link* link2, double staticFriction, double dynamicFriction);
 
 protected:
     AISTSimulatorItem(const AISTSimulatorItem& org);
+    virtual void clearSimulation() override;
     virtual SimulationBody* createSimulationBody(Body* orgBody, CloneMap& cloneMap) override;
     virtual bool initializeSimulation(const std::vector<SimulationBody*>& simBodies) override;
     virtual bool completeInitializationOfSimulation() override;

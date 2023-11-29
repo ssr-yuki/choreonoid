@@ -342,28 +342,33 @@ bool FrameListModel::setData(const QModelIndex& index, const QVariant& value, in
     if(role == Qt::EditRole){
         switch(index.column()){
         case IdColumn: {
-            bool isInt;
-            auto stringId = value.toString();
-            int intId = stringId.toInt(&isInt);
-            if(isInt){
-                frameList->resetId(frame, intId);
+            if(frame->id().isInt()){
+                bool ok;
+                auto intValue = value.toInt(&ok);
+                if(ok){
+                    frameList->resetId(frame, intValue);
+                    updateFlags = CoordinateFrame::IdUpdate;
+                }
             } else {
-                frameList->resetId(frame, stringId.toStdString());
+                frameList->resetId(frame, value.toString().toStdString());
+                updateFlags = CoordinateFrame::IdUpdate;
             }
-            updateFlags = CoordinateFrame::IdUpdate;
             break;
         }
+
         case NoteColumn:
             frame->setNote(value.toString().toStdString());
             updateFlags = CoordinateFrame::NoteUpdate;
             break;
 
-        case GlobalCheckColumn: {
-            bool isGlobal = value.toBool();
-            int mode = isGlobal ? CoordinateFrame::Global : CoordinateFrame::Local;
-            frameListItem->switchFrameMode(frame, mode, true);
+        case GlobalCheckColumn:
+            if(frameListItem->isForBaseFrames()){
+                bool isGlobal = value.toBool();
+                int mode = isGlobal ? CoordinateFrame::Global : CoordinateFrame::Local;
+                frameListItem->switchFrameMode(frame, mode, true);
+            }
             break;
-        }
+
         case VisibleCheckColumn:
             frameListItem->setFrameMarkerVisible(frame, value.toBool());
             Q_EMIT dataChanged(index, index, {role});

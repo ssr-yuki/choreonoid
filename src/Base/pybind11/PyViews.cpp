@@ -1,20 +1,16 @@
-/*!
- * @author Shin'ichiro Nakaoka
-*/
-
 #include "PyQObjectHolder.h"
 #include "PyQString.h"
 #include "../MessageView.h"
 #include "../SceneWidget.h"
 #include "../SceneWidgetEvent.h"
 #include "../SceneView.h"
-#include "../GLSceneRenderer.h"
 #include "../InteractiveCameraTransform.h"
 #include "../TaskView.h"
 #include "../ViewManager.h"
 #include "../Menu.h"
 #include <cnoid/PyUtil>
 #include <cnoid/SceneRenderer>
+#include <cnoid/GLSceneRenderer>
 #include <cnoid/SceneCameras>
 #include <cnoid/SceneLights>
 #include <QWidget>
@@ -41,7 +37,7 @@ void exportPyViews(py::module m)
         .def("setDefaultLayoutArea", &View::setDefaultLayoutArea)
         .def_property_readonly("indicatorOnInfoBar", &View::indicatorOnInfoBar)
         .def("enableFontSizeZoomKeys", &View::enableFontSizeZoomKeys)
-        .def_property_readonly_static("lastFocusView", &View::lastFocusView)
+        .def_property_readonly_static("lastFocusView", [](py::object){ return View::lastFocusView(); })
 
         // deprecated
         .def("getName", &View::name)
@@ -88,7 +84,8 @@ void exportPyViews(py::module m)
         ;
 
     m.def("showMessageBox", (void(*)(const std::string&)) &showMessageBox);
-    m.def("showWarningDialog", (void(*)(const std::string&)) &showWarningDialog);
+    m.def("showWarningDialog", (bool(*)(const std::string&, bool)) &showWarningDialog);
+    m.def("showWarningDialog", (bool(*)(const std::string&, const std::string&, bool)) &showWarningDialog);
     m.def("showConfirmDialog", (bool(*)(const std::string&, const std::string&)) &showConfirmDialog);
 
     py::class_<SceneWidget, PyQObjectHolder<SceneWidget>, QWidget> sceneWidget(m, "SceneWidget");
@@ -266,10 +263,10 @@ void exportPyViews(py::module m)
             [](const std::string& moduleName, const std::string& className){
                 return releaseFromPythonSideManagement(ViewManager::getOrCreateView(moduleName, className));
             })
-        .def_property_readonly_static("sigViewCreated", &ViewManager::sigViewCreated)
-        .def_property_readonly_static("sigViewActivated", &ViewManager::sigViewActivated)
-        .def_property_readonly_static("sigViewDeactivated", &ViewManager::sigViewDeactivated)
-        .def_property_readonly_static("sigViewRemoved", &ViewManager::sigViewRemoved)
+        .def_property_readonly_static("sigViewCreated", [](py::object){ return ViewManager::sigViewCreated(); })
+        .def_property_readonly_static("sigViewActivated", [](py::object){ return ViewManager::sigViewActivated(); })
+        .def_property_readonly_static("sigViewDeactivated", [](py::object){ return ViewManager::sigViewDeactivated(); })
+        .def_property_readonly_static("sigViewRemoved", [](py::object){ return ViewManager::sigViewRemoved(); })
 
         // deprecated
         .def_static("getSigViewCreated", &ViewManager::sigViewCreated)

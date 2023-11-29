@@ -278,7 +278,9 @@ std::vector<std::string> ItemFileIO::separateExtensions(const std::string& multi
     do {
         const char* begin = str;
         while(*str != ';' && *str) ++str;
-        extensions.push_back(string(begin, str));
+        if(begin < str){
+            extensions.push_back(string(begin, str));
+        }
     } while(0 != *str++);
 
     return extensions;
@@ -319,7 +321,7 @@ bool ItemFileIO::Impl::preprocessLoadingOrSaving
 (Item* item, std::string& io_filename, const Mapping* options)
 {
     if(currentInvocationType == Direct){
-        FilePathVariableProcessor* pathProcessor = FilePathVariableProcessor::systemInstance();
+        auto pathProcessor = FilePathVariableProcessor::currentInstance();
         io_filename = pathProcessor->expand(io_filename, true);
         if(io_filename.empty()){
             errorMessage = pathProcessor->errorMessage();
@@ -502,7 +504,7 @@ bool ItemFileIO::Impl::saveItem
             self->storeOptions(optionArchive);
         }
         if(!isExport){
-            item->setTemporal(false);
+            item->setTemporary(false);
             item->updateFileInformation(
                 filename,
                 formatOnLastIO.empty() ? format : formatOnLastIO,

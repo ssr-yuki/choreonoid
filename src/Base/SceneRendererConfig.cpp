@@ -1,12 +1,12 @@
 #include "SceneRendererConfig.h"
 #include "MainWindow.h"
-#include "GLSceneRenderer.h"
 #include "Dialog.h"
 #include "Buttons.h"
 #include "ButtonGroup.h"
 #include "CheckBox.h"
 #include "SpinBox.h"
 #include "DoubleSpinBox.h"
+#include <cnoid/GLSceneRenderer>
 #include <cnoid/SceneLights>
 #include <cnoid/Selection>
 #include <cnoid/ValueTree>
@@ -228,7 +228,7 @@ SceneRendererConfig::Impl::Impl(const Impl& org, SceneRendererConfig* self)
     isAdditionalLightSetEnabled = org.isAdditionalLightSetEnabled;
     isShadowCastingAvailable = org.isShadowCastingAvailable;
     isShadowAntiAliasingEnabled = org.isShadowAntiAliasingEnabled;
-    isWorldLightEnabled = org.isWorldLightShadowEnabled;
+    isWorldLightShadowEnabled = org.isWorldLightShadowEnabled;
     isTextureEnabled = org.isTextureEnabled;
     isFogEnabled = org.isFogEnabled;
     isUpsideDownEnabled = org.isUpsideDownEnabled;

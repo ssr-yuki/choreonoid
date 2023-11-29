@@ -218,7 +218,7 @@ bool cnoid::loadHrpsysSeqFileSet(BodyMotion& motion, const std::string& filename
                 } else {
                     // make the coordinate global
                     MultiSE3Seq::Part rootSeq = linkPosSeq->part(0);
-                    for(int i=0; i < zmpseq->numFrames(); ++i){
+                    for(size_t i=0; i < zmpseq->numFrames(); ++i){
                         const SE3& p = rootSeq[std::min(i, rootSeq.size() - 1)];
                         (*zmpseq)[i] = p.rotation() * (*zmpseq)[i] + p.translation();
                     }
@@ -247,8 +247,11 @@ bool cnoid::loadHrpsysSeqFileSet(BodyMotion& motion, const std::string& filename
             loaded = false;
         } else {
             motion.setFrameRate(frameRate);
+
+            motion.updateBodyPositionSeqWithLinkPosSeqAndJointPosSeq();
         }
     }
+    
     if(!loaded){
         motion.setNumFrames(0);
     }
@@ -259,6 +262,8 @@ bool cnoid::loadHrpsysSeqFileSet(BodyMotion& motion, const std::string& filename
 
 bool cnoid::saveHrpsysSeqFileSet(BodyMotion& motion, Body* body, const std::string& filename, std::ostream& os)
 {
+    motion.updateLinkPosSeqAndJointPosSeqWithBodyPositionSeq();
+    
     stdx::filesystem::path orgpath(fromUTF8(filename));
 
     if(motion.jointPosSeq()->saveAsPlainFormat(
@@ -279,7 +284,7 @@ bool cnoid::saveHrpsysSeqFileSet(BodyMotion& motion, Body* body, const std::stri
             Vector3Seq relZMP(zmpseq->numFrames());
             relZMP.setFrameRate(zmpseq->frameRate());
             MultiSE3Seq::Part rootSeq = motion.linkPosSeq()->part(0);
-            for(int i=0; i < zmpseq->numFrames(); ++i){
+            for(size_t i=0; i < zmpseq->numFrames(); ++i){
                 const SE3& p = rootSeq[std::min(i, rootSeq.size() - 1)];
                 relZMP[i].noalias() = p.rotation().inverse() * (zmpseq->at(i) - p.translation());
             }

@@ -7,7 +7,6 @@
 #include "PluginManager.h"
 #include "ViewManager.h"
 #include "RootItem.h"
-#include "RenderableItem.h"
 #include "ItemList.h"
 #include "MainWindow.h"
 #include "ToolBarArea.h"
@@ -15,6 +14,8 @@
 #include "InfoBar.h"
 #include "MessageView.h"
 #include "PathVariableEditor.h"
+#include "DistanceMeasurementDialog.h"
+#include "RenderableItemSceneStatistics.h"
 #include "MovieRecorderDialog.h"
 #include "SceneWidget.h"
 #include "DescriptionDialog.h"
@@ -152,7 +153,7 @@ void MainMenu::setMenuItems()
     
     mm.setPath("/" N_("Tools"));
     set_Tools_Menu(mm.currentMenu());
-
+    setActionAsShowDistanceMeasurementDialog(mm.addItem(_("Distance Measurement")));
     setActionAsPutSceneStatistics(mm.addItem(_("Put Scene Statistics")));
     setActionAsShowMovieRecorderDialog(mm.addItem(_("Movie Recorder")));
 
@@ -514,9 +515,15 @@ void MainMenu::setActionAsResetMainWindowLayout(Action* action)
 }
 
 
+void MainMenu::setActionAsShowDistanceMeasurementDialog(Action* action)
+{
+    action->sigTriggered().connect([](){ DistanceMeasurementDialog::instance()->show(); });
+}
+
+
 void MainMenu::setActionAsPutSceneStatistics(Action* action)
 {
-    action->sigTriggered().connect([](){ RenderableItem::putSceneStatistics(); });
+    action->sigTriggered().connect([](){ putRenderableItemSceneStatistics(); });
 }
 
 

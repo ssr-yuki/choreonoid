@@ -144,7 +144,7 @@ private:
     template<class JointContainer>
     bool fetchJointDisplacements(const JointContainer& joints, MessageOut* out);
     template<class JointContainer>
-    bool applyJointDisplacements(JointContainer& joints) const;
+    bool applyJointDisplacements(BodyKinematicsKit* kinematicsKit, JointContainer& joints) const;
     
     JointDisplacementArray jointDisplacements_;
     std::bitset<MaxNumJoints> prismaticJointFlags_;
@@ -235,7 +235,6 @@ public:
     }
 
     void setPosition(int index, MprPosition* position);
-    void clearPosition(int index);
     void clearPositions();
     bool empty() const { return numValidPositions_ == 0; }
     int maxPositionIndex() const { return positions_.size() - 1; }

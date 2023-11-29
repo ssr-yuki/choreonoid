@@ -52,12 +52,18 @@ elseif(NOT EXISTS ${AGX_DIR})
 endif()
 
 set(CMAKE_MODULE_PATH "${AGX_DIR}/CMakeModules;${CMAKE_MODULE_PATH}")
+
+set(cxx_standard ${CMAKE_CXX_STANDARD})
+
 include(AGXUtils)
 include(AGX${CMAKE_SYSTEM_NAME}Specific)
 include(AGXCompilerFlags )
 
+# Restore the original C++ version
+set(CMAKE_CXX_STANDARD ${cxx_standard})
+
 # Now locate AgX
-find_package(AGX REQUIRED)
+find_package(AGX REQUIRED QUIET)
 
 if(AGX_FOUND)
   message(STATUS "AGX Dynamics found in \"${AGX_DIR}\".")
@@ -105,23 +111,14 @@ set(headers
 choreonoid_make_gettext_mo_files(${target} mofiles)
 choreonoid_add_plugin(${target} ${sources} ${mofiles} HEADERS ${headers})
 
-# Specify which libraries to be used when building in release
-AGX_TARGET_LINK_LIBRARIES(${target} optimized ${AGX_LIBRARIES_RELEASE})
-
-# Specify which libraries to be used when building in debug
+set(agx_libraries optimized ${AGX_LIBRARIES_RELEASE})
 if(AGX_LIBRARIES_DEBUG)
-  AGX_TARGET_LINK_LIBRARIES(${target} debug ${AGX_LIBRARIES_DEBUG} )
+  set(agx_libraries ${agx_libraries} debug ${AGX_LIBRARIES_DEBUG})
 else()
-  AGX_TARGET_LINK_LIBRARIES(${target} debug ${AGX_LIBRARIES_RELEASE} )
+  set(agx_libraries ${agx_libraries} debug ${AGX_LIBRARIES_RELEASE})
 endif()
 
-target_link_libraries(${target} CnoidBodyPlugin)
-
-get_target_property(compile_flags ${target} COMPILE_FLAGS)
-if(NOT compile_flags)
-  set(compile_flags "")
-endif()
-set_target_properties(${target} PROPERTIES COMPILE_FLAGS "${compile_flags} -msse3")
+target_link_libraries(${target} PUBLIC CnoidBodyPlugin ${agx_libraries})
 
 add_subdirectory(AGXBodyExtensionPlugin)
 

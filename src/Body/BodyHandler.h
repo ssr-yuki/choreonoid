@@ -3,6 +3,7 @@
 
 #include <cnoid/Referenced>
 #include <cnoid/Config>
+#include <cnoid/NullOut>
 #include <string>
 #include <iosfwd>
 #include <memory>
@@ -21,13 +22,30 @@ class CNOID_EXPORT BodyHandler : public Referenced
 {
 public:
     static bool checkVersion(const char* name, int version, int internalVersion, std::ostream& os);
-    virtual bool initialize(Body* body, std::ostream& os) = 0;
-    virtual BodyHandler* clone() = 0;
+    BodyHandler();
+
+    virtual bool initialize(Body* body, std::ostream& os = nullout());
+
+    /**
+       This function simply creates an object of the same type as the original object,
+       and the initialization after cloning is processed by the initialize function.
+    */
+    virtual BodyHandler* clone();
+
+    /**
+       This is a deprecated function. Don't override this.
+       \todo Remove this definition and make the clone function with no argument pure virtual.
+    */
+    virtual BodyHandler* clone(Body* body);
+    
+    Body* body() { return body_; }
     const std::string& filename() const { return filename_; }
 
 private:
+    Body* body_;
     std::string filename_;
 
+    friend class Body;
     friend class BodyHandlerManager;
 };
 

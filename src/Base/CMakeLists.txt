@@ -1,5 +1,3 @@
-# @author Shin'ichiro Nakaoka
-
 #set(CMAKE_BUILD_TYPE Debug)
 #set_source_files_properties(GLSLSceneRenderer.cpp PROPERTIES COMPILE_FLAGS "-O3 -g")
 
@@ -9,6 +7,7 @@ set(sources
   Menu.cpp
   MainMenu.cpp
   ProjectManager.cpp
+  ProjectPacker.cpp
   PathVariableEditor.cpp
   PluginManager.cpp
   MainWindow.cpp
@@ -27,6 +26,8 @@ set(sources
   ItemAddon.cpp
   LocatableItem.cpp
   RenderableItem.cpp
+  RenderableItemUtil.cpp
+  RenderableItemSceneStatistics.cpp
   PolymorphicItemFunctionSet.cpp
   PutPropertyFunction.cpp
   RootItem.cpp
@@ -71,7 +72,11 @@ set(sources
   Slider.cpp
   Dial.cpp
   Splitter.cpp
-  Buttons.cpp
+  PushButton.cpp
+  ToggleButton.cpp
+  RadioButton.cpp
+  ToolButton.cpp
+  ToggleToolButton.cpp
   ButtonGroup.cpp
   CheckBox.cpp
   LineEdit.cpp
@@ -95,6 +100,7 @@ set(sources
   MultiSE3SeqItem.cpp
   MultiSE3MatrixSeqItem.cpp
   Vector3SeqItem.cpp
+  MultiVector3SeqItem.cpp
   ReferencedObjectSeqItem.cpp
   CoordinateFrameListItem.cpp
   CoordinateFrameItem.cpp
@@ -108,11 +114,6 @@ set(sources
   LazyCaller.cpp
   LazySignal.cpp
   Licenses.cpp
-  GLSceneRenderer.cpp
-  GL1SceneRenderer.cpp
-  GLSLProgram.cpp
-  ShaderPrograms.cpp
-  GLSLSceneRenderer.cpp
   SceneRendererConfig.cpp
   SceneWidget.cpp
   SceneWidgetEvent.cpp
@@ -135,6 +136,9 @@ set(sources
   MultiPointSetItem.cpp
   PositionTagGroupItem.cpp
   PositionTagListWidget.cpp
+  GeometryMeasurementTracker.cpp
+  DistanceMeasurementItem.cpp
+  DistanceMeasurementDialog.cpp
   MovieRecorder.cpp
   MovieRecorderBar.cpp
   MovieRecorderDialog.cpp
@@ -147,10 +151,6 @@ set(sources
   VirtualJoystickView.cpp
   MessageLogItem.cpp
   LightingItem.cpp
-  gl_core_3_3.c
-  #gl_core_4_0.c
-  #gl_core_4_4.c
-  gl_1_5.c
   )
 
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
@@ -178,6 +178,12 @@ set(headers
   Slider.h
   Dial.h
   Splitter.h
+  Separator.h
+  PushButton.h
+  ToggleButton.h
+  RadioButton.h
+  ToolButton.h
+  ToggleToolButton.h
   Buttons.h
   ButtonGroup.h
   CheckBox.h
@@ -185,6 +191,7 @@ set(headers
   ComboBox.h
   Dialog.h
   FileDialog.h
+  DescriptionDialog.h
   Timer.h
   SocketNotifier.h
   ImageWidget.h
@@ -197,6 +204,7 @@ set(headers
   ToolBar.h
   View.h
   ViewArea.h
+  InfoBar.h
   ViewManager.h
   LayoutSwitcher.h
   GraphWidget.h
@@ -204,6 +212,7 @@ set(headers
   ExtensionManager.h
   OptionManager.h
   ProjectManager.h
+  ProjectPacker.h
   PluginManager.h
   Plugin.h
   MessageView.h
@@ -216,14 +225,17 @@ set(headers
   ItemAddon.h
   LocatableItem.h
   RenderableItem.h
+  RenderableItemUtil.h
   ImageableItem.h
   TargetItemPicker.h
   UnifiedEditHistory.h
   EditRecord.h
   ItemEditRecordManager.h
+  StringListComboBox.h
   DisplayValueFormat.h
   PositionWidget.h
   LocationView.h
+  MultiSeqItemCreationPanel.h
   PutPropertyFunction.h
   RootItem.h
   FolderItem.h
@@ -267,9 +279,6 @@ set(headers
   InteractiveCameraTransform.h
   RectRegionMarker.h
   CoordinateFrameMarker.h
-  GLSceneRenderer.h
-  GL1SceneRenderer.h
-  GLSLSceneRenderer.h
   SceneRendererConfig.h
   SceneView.h
   SceneViewConfig.h
@@ -280,6 +289,9 @@ set(headers
   MultiPointSetItem.h
   PositionTagGroupItem.h
   PositionTagListWidget.h
+  GeometryMeasurementTracker.h
+  DistanceMeasurementItem.h
+  DistanceMeasurementDialog.h
   MovieRecorder.h
   MovieRecorderBar.h
   MovieRecorderDialog.h
@@ -305,14 +317,8 @@ set(qtheaders
   Widget.h
   FloatingNumberBox.h
   ScrollBar.h
-  Dial.h
   Splitter.h
-  Buttons.h
-  ButtonGroup.h
-  CheckBox.h
-  ComboBox.h
   TreeView.h
-  TreeWidget.h
   ItemSelectionModel.h
   Timer.h
   SocketNotifier.h
@@ -327,23 +333,17 @@ set(sources ${sources} ${qtsources})
 
 make_gettext_mofiles(${target} mofiles)
 
-choreonoid_add_library(${target} SHARED ${sources} ${mofiles} ${RC_SRCS} HEADERS ${headers})
+set(libraries
+  PUBLIC CnoidUtil ${CHOREONOID_QT_LIBRARIES}
+  PRIVATE CnoidGLSceneRenderer ${libzip_LIBRARIES})
 
-if(MSVC)
-  target_link_libraries(${target}
-    CnoidUtil
-    ${CHOREONOID_QT_LIBRARIES}
-    general glu32 opengl32
-    )
-else()
-  target_link_libraries(${target}
-    CnoidUtil
-    ${CHOREONOID_QT_LIBRARIES} ${Boost_PROGRAM_OPTIONS_LIBRARY} OpenGL::GLU
-    icuuc X11 Xfixes
-    )
+if(UNIX)
+  set(libraries ${libraries} PUBLIC ${Boost_PROGRAM_OPTIONS_LIBRARY} PRIVATE X11 Xfixes)
 endif()
 
+choreonoid_add_library(${target} SHARED ${sources} ${mofiles} ${RC_SRCS} HEADERS ${headers})
 target_compile_definitions(${target} PUBLIC ${CHOREONOID_QT_COMPILE_DEFINITIONS})
+target_link_libraries(${target} ${libraries})
 
 file(MAKE_DIRECTORY ${CNOID_BINARY_SHARE_DIR}/icon)
 file(COPY icon/choreonoid.svg DESTINATION ${CNOID_BINARY_SHARE_DIR}/icon)

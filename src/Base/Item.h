@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BASE_ITEM_H
 #define CNOID_BASE_ITEM_H
 
@@ -23,7 +19,6 @@ class Archive;
 class Mapping;
 class ExtensionManager;
 class PutPropertyFunction;
-class UnifiedEditHistory;
 class EditRecord;
 
 class CNOID_EXPORT Item : public ClonableReferenced
@@ -50,6 +45,9 @@ public:
            The attribute first has the same attributes as Attached.
            In addition to that, the state of the item is stored or restored as a part of the top item of the
            corresponding composite item when the project save or load is performed.
+           Note that items with this attribute are excluded from the built-in undo / redo processing implemented
+           in ItemEditRecordManager as well as the ExcludedFromUnifiedEditHistory attribute.
+           Add the IncludedInUnifiedEditHistory attribute to enable the built-in undo / redo processing.
         */
         SubItem = Attached | SubItemAdditionalAttribute,
 
@@ -66,7 +64,7 @@ public:
            This attribute is set if the item is temporarily generated item.
            An item with this attribute is not stored or restored when a project is saved or loaded.
         */
-        Temporal = 1 << 3,
+        Temporary = 1 << 3,
 
         /**
            This attribute is set if the item is a built-in type item, which is automatically created and
@@ -89,10 +87,23 @@ public:
         */
         Reloadable = 1 << 6,
 
+        /**
+           Items with this attribute are excluded from the the built-in undo / redo processing implemented
+           in ItemEditRecordManager. Add this attribute to avoid the built-in processing or to implement
+           custom processing for undo / redo operations.
+        */
         ExcludedFromUnifiedEditHistory = 1 << 7,
 
+        /**
+           Add this attribute to enable the built-in undo / redo processing for items with the SubItem attribute.
+           Note that the built-in processing are enabled by default for items without the SubItem attribute.
+           Adding this attribute is only valid for the item with the SubItem attribute.
+        */
+        IncludedInUnifiedEditHistory = 1 << 8,
+        
         // deprecated
         SUB_ITEM = SubItem,
+        Temporal = Temporary,
         TEMPORAL = Temporal,
         LOAD_ONLY = FileImmutable,
         LocaOnly = FileImmutable
@@ -161,19 +172,23 @@ public:
     /**
        If this is true, the item is not automatically saved or overwritten
        when a project is saved. For example, a motion item which is produced as a
-       simulation result may be an temporal item because a user may not want to
+       simulation result may be an temporary item because a user may not want to
        save the result. If a user manually save the item, the item becomes a
-       non-temporal item. Or if a child item is manually attached to a temporal
-       item, the item becomes non-temporal one as well.
+       non-temporary item. Or if a child item is manually attached to a temporary
+       item, the item becomes non-temporary one as well.
     */
-    bool isTemporal() const {
-        return hasAttribute(Temporal);
+    bool isTemporary() const {
+        return hasAttribute(Temporary);
     }
+    void setTemporary(bool on = true);
 
-    void setTemporal(bool on = true);
+    [[deprecated("Use isTemporary.")]]
+    bool isTemporal() const { return isTemporary(); }
+    [[deprecated("Use setTemporary.")]]
+    void setTemporal(bool on = true) { setTemporary(on); }
 
     bool isSelected() const { return isSelected_; }
-    void setSelected(bool on, bool isCurrent = false);
+    void setSelected(bool on = true, bool isCurrent = false);
     void setSubTreeItemsSelected(bool on);
 
     /**
@@ -183,8 +198,8 @@ public:
     enum CheckId { LogicalSumOfAllChecks = -1, PrimaryCheck = 0 };
     
     bool isChecked(int checkId = PrimaryCheck) const;
-    void setChecked(bool on); // for PrimaryCheck
-    void setChecked(int checkId, bool on);
+    void setChecked(bool on = true); // for PrimaryCheck
+    void setChecked(int checkId, bool on = true);
     int numCheckStates() const;
 
     int numChildren() const { return numChildren_; }
@@ -200,6 +215,11 @@ public:
     Item* nextItem() const { return nextItem_; }
     Item* lastChildItem() const { return lastChild_; }
     Item* parentItem() const { return parent_; }
+
+    template<class ItemType>
+    ItemType* parentItem() const {
+        return dynamic_cast<ItemType*>(parent_);
+    }
 
     /**
        @return When the item is embeded one,
@@ -254,48 +274,66 @@ public:
     }
 
     /**
+       This is equivalent to RootItem::instance<ItemType>()->findItem();
+    */
+    template<class ItemType>
+    static ItemType* find() {
+        return static_cast<ItemType*>(find(getItemPredicate<ItemType>()));
+    }
+    /**
        This is equivalent to RootItem::instance()->findItem(path);
     */
     static Item* find(const std::string& path) {
         return find(path, nullptr);
     }
+    /**
+       This is equivalent to RootItem::instance<ItemType>()->findItem(path);
+    */
     template<class ItemType>
-    ItemType* find(const std::string& path = "") {
+    static ItemType* find(const std::string& path) {
         return static_cast<ItemType*>(find(path, getItemPredicate<ItemType>()));
     }
     
+    template<class ItemType>
+    ItemType* findItem(std::function<bool(ItemType* item)> pred = nullptr) const {
+        return static_cast<ItemType*>(
+            findItem(getItemPredicate<ItemType>(pred), true));
+    }
+
     /**
        Find an item that has the corresponding path to it in the sub tree
     */
     Item* findItem(const std::string& path) const {
         return findItem(path, nullptr, true);
     }
+    
+    /**
+       Find an item that has the corresponding path to it in the sub tree
+    */
     template<class ItemType>
     ItemType* findItem(const std::string& path) const {
-        return static_cast<ItemType*>(
-            findItem(path, getItemPredicate<ItemType>(), true));
-    }
-    template<class ItemType>
-    ItemType* findItem(std::function<bool(ItemType* item)> pred = nullptr) const {
-        return static_cast<ItemType*>(
-            findItem("", getItemPredicate<ItemType>(pred), true));
+        return static_cast<ItemType*>(findItem(path, getItemPredicate<ItemType>(), true));
     }
     
+    template<class ItemType>
+    ItemType* findChildItem(std::function<bool(ItemType* item)> pred = nullptr) const {
+        return static_cast<ItemType*>(findItem(getItemPredicate<ItemType>(pred), false));
+    }
+
     /**
        Find an item that has the corresponding path from a child item to it
     */
     Item* findChildItem(const std::string& path, std::function<bool(Item* item)> pred = nullptr) const {
         return findItem(path, pred, false);
     }
+    
+    /**
+       Find an item that has the corresponding path from a child item to it
+    */
     template<class ItemType>
     ItemType* findChildItem(const std::string& path, std::function<bool(ItemType* item)> pred = nullptr) const {
         return static_cast<ItemType*>(
             findItem(path, getItemPredicate<ItemType>(pred), false));
-    }
-    template<class ItemType>
-    ItemType* findChildItem(std::function<bool(ItemType* item)> pred = nullptr) const {
-        return static_cast<ItemType*>(
-            findItem("", getItemPredicate<ItemType>(pred), false));
     }
 
     /**
@@ -496,14 +534,12 @@ public:
 
     void putProperties(PutPropertyFunction& putProperty);
 
-    static void setUnifiedEditHistory(UnifiedEditHistory* history);
-    void addEditRecordToUnifiedEditHistory(EditRecord* record);
-
     virtual bool store(Archive& archive);
     virtual bool restore(const Archive& archive);
-    virtual void setConsistentWithArchive(bool isConsistent);
-    virtual bool checkConsistencyWithArchive();
 
+    void setConsistentWithProjectArchive(bool isConsistent);
+    bool isConsistentWithProjectArchive() const;
+    
 protected:
 
     //! Implement the code to copy properties like the assingment operator
@@ -579,9 +615,10 @@ private:
     std::string name_;
     bool isSelected_;
 
+    static Item* find(const std::function<bool(Item* item)>& pred);
     static Item* find(const std::string& path, const std::function<bool(Item* item)>& pred);
-    Item* findItem(
-        const std::string& path, std::function<bool(Item* item)> pred, bool isRecursive) const;
+    Item* findItem(std::function<bool(Item* item)> pred, bool isRecursive) const;
+    Item* findItem(const std::string& path, std::function<bool(Item* item)> pred, bool isRecursive) const;
     int countDescendantItems_(std::function<bool(Item* item)> pred);
     ItemList<Item> getDescendantItems(std::function<bool(Item* item)> pred, bool isRecursive) const;
     void validateClassId() const;

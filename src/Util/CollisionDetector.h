@@ -1,14 +1,10 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_UTIL_COLLISION_DETECTOR_H
 #define CNOID_UTIL_COLLISION_DETECTOR_H
 
 #include "Collision.h"
 #include "Referenced.h"
 #include <cnoid/stdx/optional>
+#include <vector>
 #include <cstdint>
 #include "exportdecl.h"
 
@@ -45,9 +41,35 @@ public:
        \return A handle of the geometry in the collision detector
     */
     virtual stdx::optional<GeometryHandle> addGeometry(SgNode* geometry) = 0;
+
     virtual void setCustomObject(GeometryHandle geometry, Referenced* object) = 0;
     virtual void setGeometryStatic(GeometryHandle geometry, bool isStatic = true) = 0;
+
+    //! The following group operations are currently optional. There may be collsiion detectors that do not support them.
+    virtual void setGroup(GeometryHandle geometry, int groupId);
+    //! \note Every group pair is enabled by default
+    virtual void setGroupPairEnabled(int groupId1, int groupId2, bool on);
+    
+    //! \note This function will be deprecated with the setGeometryPairEnabled function.
     virtual void ignoreGeometryPair(GeometryHandle geometry1, GeometryHandle geometry2, bool ignore = true) = 0;
+
+    void setGeometryPairEnabled(GeometryHandle geometry1, GeometryHandle geometry2, bool ignore = true) {
+        ignoreGeometryPair(geometry1, geometry2, !ignore);
+    }
+
+    /**
+       This function is used to temporarily disable the collsiion detection for a particular geometry.
+       \todo This function should be a pure virtual function to force override.
+    */
+    virtual void setGeometryEnabled(GeometryHandle geometry, bool isEnabled);
+
+    /**
+       If the dynamic geometry pair change is enabled, geometry pairs for collision detection can be
+       changed after the makeReady funciton is executed. Note that this mode is optional.
+    */
+    virtual void setDynamicGeometryPairChangeEnabled(bool on);
+    virtual bool isDynamicGeometryPairChangeEnabled() const;
+
     virtual bool makeReady() = 0;
     
     virtual void updatePosition(GeometryHandle geometry, const Isometry3& position) = 0;
@@ -76,7 +98,7 @@ class CollisionPair
     typedef CollisionDetector::GeometryHandle GeometryHandle;
     GeometryHandle geometries_[2];
     Referenced* objects_[2];
-    CollisionArray collisions_;
+    std::vector<Collision> collisions_;
 
 public:
     CollisionPair() { }
@@ -95,8 +117,8 @@ public:
     const GeometryHandle* geometries() const { return geometries_; }
     Referenced*& object(int i){ return objects_[i]; };
     Referenced* object(int i) const { return objects_[i]; };
-    CollisionArray& collisions() { return collisions_; }
-    const CollisionArray& collisions() const { return collisions_; }
+    std::vector<Collision>& collisions() { return collisions_; }
+    const std::vector<Collision>& collisions() const { return collisions_; }
     void addCollision(const Collision& c){ collisions_.push_back(c); }
     Collision& newCollision() { collisions_.resize(collisions_.size() + 1); return collisions_.back(); }
     void clearCollisions(){ collisions_.clear(); }

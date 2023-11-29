@@ -24,11 +24,26 @@ public:
     enum ExtModelFileMode {
         EmbedModels = StdSceneWriter::EmbedModels,
         LinkToOriginalModelFiles = StdSceneWriter::LinkToOriginalModelFiles,
+        CopyModelFiles           = StdSceneWriter::CopyModelFiles,
         ReplaceWithStdSceneFiles = StdSceneWriter::ReplaceWithStdSceneFiles,
         ReplaceWithObjModelFiles = StdSceneWriter::ReplaceWithObjModelFiles
     };
     void setExtModelFileMode(int mode);
     int extModelFileMode() const;
+
+    void setOriginalShapeExtModelFileUriRewritingEnabled(bool on);
+    bool isOriginalShapeExtModelFileUriRewritingEnabled() const;
+
+    /**
+       Set the base directory of the files from which external model (mesh) files are loaded.
+       If this directory is specified, relative file path from the body file to each
+       external model files copied from the original model files may be simplified in
+       the CopyModelFiles mode.
+    */
+    void setOriginalBaseDirectory(const std::string& directory);
+
+    void setTransformIntegrationEnabled(bool on);
+    bool isTransformIntegrationEnabled() const;
 
     bool writeBody(Body* body, const std::string& filename);
 

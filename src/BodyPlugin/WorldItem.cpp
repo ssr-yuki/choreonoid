@@ -1,8 +1,3 @@
-/**
-   @file
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "WorldItem.h"
 #include "MaterialTableItem.h"
 #include "KinematicsBar.h"
@@ -29,8 +24,6 @@ using fmt::format;
 
 namespace {
 
-const bool TRACE_FUNCTIONS = false;
-
 typedef CollisionDetector::GeometryHandle GeometryHandle;
 
 struct ColdetLinkInfo : public Referenced
@@ -50,10 +43,12 @@ struct ColdetBodyInfo
     LinkPtr parentBodyLink;
     bool kinematicStateChanged;
     bool isSelfCollisionDetectionEnabled;
+    bool isModelUpdated;
 
     ColdetBodyInfo(BodyItem* bodyItem)
         : bodyItem(bodyItem),
-          kinematicStateChanged(false)
+          kinematicStateChanged(false),
+          isModelUpdated(false)
     {
         isSelfCollisionDetectionEnabled = bodyItem->isSelfCollisionDetectionEnabled();
     }
@@ -70,7 +65,7 @@ public:
     ostream& os;
     KinematicsBar* kinematicsBar;
 
-    ScopedConnectionSet sigKinematicStateChangedConnections;
+    ScopedConnectionSet bodyItemConnections;
 
     Selection collisionDetectorType;
     BodyCollisionDetector bodyCollisionDetector;
@@ -236,7 +231,7 @@ ItemList<BodyItem> WorldItem::coldetBodyItems() const
 }
 
 
-std::vector<CollisionLinkPairPtr>& WorldItem::collisions() const
+std::vector<WorldItem::CollisionLinkPairPtr>& WorldItem::collisions() const
 {
     return *impl->collisions;
 }
@@ -279,10 +274,6 @@ void WorldItem::setCollisionDetectionEnabled(bool on)
 
 void WorldItem::Impl::enableCollisionDetection(bool on)
 {
-    if(TRACE_FUNCTIONS){
-        os << "WorldItem::Impl::enableCollisionDetection(" << on << ")" << endl;
-    }
-
     bool changed = false;
     
     if(isCollisionDetectionEnabled && !on){
@@ -311,12 +302,8 @@ bool WorldItem::isCollisionDetectionEnabled()
 
 void WorldItem::Impl::clearCollisionDetector()
 {
-    if(TRACE_FUNCTIONS){
-        os << "WorldItem::Impl::clearCollisionDetector()" << endl;
-    }
-
     bodyCollisionDetector.clearBodies();
-    sigKinematicStateChangedConnections.disconnect();
+    bodyItemConnections.disconnect();
     updateCollisionsLater.cancel();
     needToUpdateCollisionsLater = false;
 
@@ -340,10 +327,6 @@ void WorldItem::updateCollisionDetector()
 
 void WorldItem::Impl::updateCollisionDetector(bool forceUpdate)
 {
-    if(TRACE_FUNCTIONS){
-        os << "WorldItem::Impl::updateCollisionDetector()" << endl;
-    }
-
     if(!isCollisionDetectionEnabled){
         return;
     }
@@ -354,19 +337,23 @@ void WorldItem::Impl::updateCollisionDetector(bool forceUpdate)
         vector<ColdetBodyInfo> infos;
         updateColdetBodyInfos(infos);
         if(infos.size() == coldetBodyInfos.size()){
-            if(std::equal(infos.begin(), infos.end(), coldetBodyInfos.begin(),
-                          [](ColdetBodyInfo& info1, ColdetBodyInfo& info2){
-                              return (info1.bodyItem == info2.bodyItem &&
-                                      info1.isSelfCollisionDetectionEnabled == info2.isSelfCollisionDetectionEnabled); })){
+            bool unchanged = std::equal(
+                infos.begin(), infos.end(), coldetBodyInfos.begin(),
+                [](ColdetBodyInfo& info1, ColdetBodyInfo& info2){
+                    return (info1.bodyItem == info2.bodyItem &&
+                            info1.isSelfCollisionDetectionEnabled == info2.isSelfCollisionDetectionEnabled &&
+                            !info2.isModelUpdated);
+                });
+            if(unchanged){
                 // A set of body items are not changed
                 if(needToUpdateCollisionsLater){
                     needToUpdateCollisionsLater = false;
                     updateCollisions(false);
-                    return;
                 }
+                return;
             }
         }
-        coldetBodyInfos = infos;
+        coldetBodyInfos.swap(infos);
     }
 
     clearCollisionDetector();
@@ -374,21 +361,30 @@ void WorldItem::Impl::updateCollisionDetector(bool forceUpdate)
     for(auto& bodyInfo : coldetBodyInfos){
         BodyItem* bodyItem = bodyInfo.bodyItem;
 
-        bodyCollisionDetector.addBody(
-            bodyItem->body(), bodyInfo.isSelfCollisionDetectionEnabled,
+        bodyCollisionDetector.setLinkAssociatedObjectFunction(
             [&bodyInfo](Link* link, GeometryHandle geometry){
-                ColdetLinkInfo* linkInfo = new ColdetLinkInfo(bodyInfo.bodyItem, link, geometry);
+                auto linkInfo = new ColdetLinkInfo(bodyInfo.bodyItem, link, geometry);
                 bodyInfo.linkInfos.push_back(linkInfo);
                 return linkInfo;
             });
+            
+        bodyCollisionDetector.addBody(bodyItem->body(), bodyInfo.isSelfCollisionDetectionEnabled);
 
         ColdetBodyInfo* pBodyInfo = &bodyInfo;
-        sigKinematicStateChangedConnections.add(
+        bodyItemConnections.add(
             bodyItem->sigKinematicStateChanged().connect(
-                [&, pBodyInfo](){
+                [this, pBodyInfo](){
                     pBodyInfo->kinematicStateChanged = true;
                     updateCollisionsLater.setPriority(kinematicsBar->collisionDetectionPriority());
                     updateCollisionsLater();
+                }));
+        bodyItemConnections.add(
+            bodyItem->sigModelUpdated().connect(
+                [this, pBodyInfo](int flags){
+                    if(flags & (BodyItem::LinkSetUpdate | BodyItem::LinkSpecUpdate | BodyItem::ShapeUpdate)){
+                        pBodyInfo->isModelUpdated = true;
+                        updateCollisionDetectorLater();
+                    }
                 }));
     }
 
@@ -438,12 +434,15 @@ void WorldItem::Impl::updateCollisions(bool forceUpdate)
             newParentBodyLink = bodyItem->body()->parentBodyLink();
         }
         if(newParentBodyLink != prevParentBodyLink){
-            auto rootLinkGeometry = bodyInfo.linkInfos[0]->geometry;
-            if(prevParentBodyLink){
-                ignoreLinkPair(collisionDetector, rootLinkGeometry, prevParentBodyLink, false);
-            }
-            if(newParentBodyLink){
-                ignoreLinkPair(collisionDetector, rootLinkGeometry, newParentBodyLink, true);
+            auto& linkInfos = bodyInfo.linkInfos;
+            if(!linkInfos.empty()){
+                auto rootLinkGeometry = linkInfos.front()->geometry;
+                if(prevParentBodyLink){
+                    ignoreLinkPair(collisionDetector, rootLinkGeometry, prevParentBodyLink, false);
+                }
+                if(newParentBodyLink){
+                    ignoreLinkPair(collisionDetector, rootLinkGeometry, newParentBodyLink, true);
+                }
             }
             bodyInfo.parentBodyLink = newParentBodyLink;
         }
@@ -485,17 +484,16 @@ void WorldItem::Impl::ignoreLinkPair
 void WorldItem::Impl::extractCollisions(const CollisionPair& collisionPair)
 {
     CollisionLinkPairPtr collisionLinkPair = std::make_shared<CollisionLinkPair>();
-    collisionLinkPair->collisions = collisionPair.collisions();
-    BodyItem* bodyItem = 0;
+    collisionLinkPair->setCollisions(collisionPair.collisions());
+    BodyItem* bodyItem = nullptr;
     for(int i=0; i < 2; ++i){
         ColdetLinkInfo* linkInfo = static_cast<ColdetLinkInfo*>(collisionPair.object(i));
         if(linkInfo->bodyItem != bodyItem){
             bodyItem = linkInfo->bodyItem;
             bodyItem->collisions().push_back(collisionLinkPair);
         }
-        collisionLinkPair->body[i] = bodyItem->body();
         Link* link = linkInfo->link;
-        collisionLinkPair->link[i] = link;
+        collisionLinkPair->setLink(i, link);
         bodyItem->collisionsOfLink(link->index()).push_back(collisionLinkPair);
         bodyItem->collisionLinkBitSet()[link->index()] = true;
     }

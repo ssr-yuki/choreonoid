@@ -167,7 +167,7 @@ Item* LinkOverwriteItem::doCloneItem(CloneMap* cloneMap) const
 }
 
 
-bool LinkOverwriteItem::onCheckNewOverwritePosition(bool isManualOperation)
+bool LinkOverwriteItem::onNewOverwritePositionCheck(bool /* isManualOperation */)
 {
     bool acceptable = false;
     auto newBodyItem_ = newBodyItem();
@@ -368,17 +368,25 @@ bool LinkOverwriteItem::Impl::updateOverwriting(BodyItem* bodyItem)
     }
 
     if(updated){
+        bool isKinematicStateChangeNotificationRequested = false;
+        
         if((additionalLink && newTargetLink) ||
            (targetElementSet & (JointType | JointId | JointName))){
             body->updateLinkTree();
+            if(bodyItem->isBeingRestored()){
+                bodyItem->requestNonRootLinkStatesRestorationOnSubTreeRestored();
+                isKinematicStateChangeNotificationRequested = true;
+            }
         }
 
         bodyItem->notifyModelUpdate(
             BodyItem::LinkSetUpdate | BodyItem::LinkSpecUpdate |
             BodyItem::DeviceSetUpdate | BodyItem::ShapeUpdate);
 
-        if(targetElementSet & (OffsetPosition | JointType | JointAxis)){
-            bodyItem->notifyKinematicStateChange(true);
+        if(!isKinematicStateChangeNotificationRequested){
+            if(targetElementSet & (OffsetPosition | JointType | JointAxis)){
+                bodyItem->notifyKinematicStateChange(true);
+            }
         }
 
         // todo: Execute the following code only when the target body item is changed
@@ -477,7 +485,7 @@ bool LinkOverwriteItem::Impl::addNewLink(Body* body)
         parentLink = body->link(additionalLinkParentName);
     }
     if(!parentLink){
-        if(auto parentLinkOverwriteItem = dynamic_cast<LinkOverwriteItem*>(self->parentItem())){
+        if(auto parentLinkOverwriteItem = self->parentItem<LinkOverwriteItem>()){
             if(parentLinkOverwriteItem->isOverwriting()){
                 parentLink = parentLinkOverwriteItem->impl->targetLink;
             }
@@ -913,7 +921,7 @@ OffsetLocation::OffsetLocation(LinkOverwriteItem::Impl* impl)
     : LocationProxy(LocationProxy::OffsetLocation),
       impl(impl)
 {
-    setEditable(false);
+    setLocked(true);
 }
 
 

@@ -1,7 +1,3 @@
-/** \file
-    \author Shin'ichiro Nakaoka
-*/
-
 #include "BodyLinkView.h"
 #include "BodySelectionManager.h"
 #include "BodyItem.h"
@@ -14,6 +10,7 @@
 #include <cnoid/JointPath>
 #include <cnoid/PinDragIK>
 #include <cnoid/PenetrationBlocker>
+#include <cnoid/LinkedJointHandler>
 #include <cnoid/ConnectionSet>
 #include <cnoid/Archive>
 #include <cnoid/SpinBox>
@@ -89,7 +86,8 @@ public:
 
     WorldItem* currentWorldItem;
     BodyItemPtr currentBodyItem;
-    Link* currentLink;
+    LinkPtr currentLink;
+    LinkedJointHandlerPtr linkedJointHandler;
 
     ScopedConnection bodySelectionManagerConnection;
     ScopedConnectionSet bodyItemConnections;
@@ -154,13 +152,11 @@ BodyLinkView::Impl::Impl(BodyLinkView* self)
     self->setDefaultLayoutArea(CenterArea);
 
     currentWorldItem = nullptr;
-    currentBodyItem = nullptr;
-    currentLink = nullptr;
 
     setupWidgets();
 
     updateKinematicStateLater.setFunction([&](){ updateKinematicState(true); });
-    updateKinematicStateLater.setPriority(LazyCaller::PRIORITY_LOW);
+    updateKinematicStateLater.setPriority(LazyCaller::LowPriority);
 
     bodySelectionManagerConnection = 
         BodySelectionManager::instance()->sigCurrentChanged().connect(
@@ -487,8 +483,12 @@ void BodyLinkView::Impl::onCurrentLinkChanged(BodyItem* bodyItem, Link* link)
         activateCurrentBodyItem(false);
         currentBodyItem = bodyItem;
         currentLink = link;
-        activateCurrentBodyItem(true);
+        linkedJointHandler.reset();
 
+        if(bodyItem){
+            linkedJointHandler = LinkedJointHandler::findOrCreateLinkedJointHandler(bodyItem->body());
+            activateCurrentBodyItem(true);
+        }
     } else if(link && link != currentLink){
         currentLink = link;
         update();
@@ -746,8 +746,7 @@ void BodyLinkView::Impl::updateCollisions()
     worldCollisionString.clear();
 
     if(currentLink){
-        const std::vector<CollisionLinkPairPtr>& collisions =
-            currentBodyItem->collisionsOfLink(currentLink->index());
+        auto& collisions = currentBodyItem->collisionsOfLink(currentLink->index());
         for(size_t i=0; i < collisions.size(); ++i){
             const CollisionLinkPair& collisionPair = *collisions[i];
             if(collisionPair.isSelfCollision()){
@@ -766,10 +765,10 @@ void BodyLinkView::Impl::updateCollisions()
 void BodyLinkView::Impl::addSelfCollision(const CollisionLinkPair& collisionPair, QString& collisionString)
 {
     Link* oppositeLink;
-    if(collisionPair.link[0] == currentLink){
-        oppositeLink = collisionPair.link[1];
+    if(collisionPair.link(0) == currentLink){
+        oppositeLink = collisionPair.link(1);
     } else {
-        oppositeLink = collisionPair.link[0];
+        oppositeLink = collisionPair.link(0);
     }
     if(!collisionString.isEmpty()){
         collisionString += " ";
@@ -780,14 +779,14 @@ void BodyLinkView::Impl::addSelfCollision(const CollisionLinkPair& collisionPair
 
 void BodyLinkView::Impl::addWorldCollision(const CollisionLinkPair& collisionPair, QString& collisionString)
 {
-    int opposite = (collisionPair.link[0] == currentLink) ? 1 : 0;
+    int opposite = (collisionPair.link(0) == currentLink) ? 1 : 0;
 
     if(!collisionString.isEmpty()){
         collisionString += " ";
     }
-    collisionString += collisionPair.body[opposite]->name().c_str();
+    collisionString += collisionPair.body(opposite)->name().c_str();
     collisionString += " / ";
-    collisionString += collisionPair.link[opposite]->name().c_str();
+    collisionString += collisionPair.link(opposite)->name().c_str();
 }
 
 
@@ -809,7 +808,9 @@ void BodyLinkView::Impl::on_qChanged(double q)
         if(currentLink->isRevoluteJoint()){
             q = radian(q);
         }
-        currentLink->q() = q;
+        if(linkedJointHandler->updateLinkedJointDisplacements(currentLink, q)){
+            linkedJointHandler->limitLinkedJointDisplacementsWithinMovableRanges(currentLink);
+        }
         currentBodyItem->notifyKinematicStateChange(true);
     }
 }

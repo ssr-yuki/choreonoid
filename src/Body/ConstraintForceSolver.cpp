@@ -1,9 +1,3 @@
-/**
-   \file
-   \brief Implementation of ConstraintForceSolver class
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifdef __WIN32__
 #define NOMINMAX
 #endif
@@ -19,6 +13,7 @@
 #include <cnoid/EigenUtil>
 #include <cnoid/CloneMap>
 #include <cnoid/TimeMeasure>
+#include <cnoid/stdx/clamp>
 #include <fmt/format.h>
 #include <random>
 #include <unordered_map>
@@ -271,12 +266,12 @@ public:
     int numGaussSeidelTotalCalls;
     int numGaussSeidelTotalLoopsMax;
 
-
     Impl(DyWorldBase& world);
     ~Impl();
+    void clearBodies();
     void initBody(DyBody* body);
     void initSubBody(DySubBody* subBody);
-    void initExtraJoint(ExtraJoint& extrajoint);
+    void initExtraJoint(ExtraJoint* extrajoint);
     void initWorldExtraJoints();
     void init2Dconstraint(DySubBody* subBody);
     void initialize(void);
@@ -402,6 +397,25 @@ ConstraintForceSolver::Impl::~Impl()
 }
 
 
+void ConstraintForceSolver::clearBodies()
+{
+    impl->clearBodies();
+}
+
+
+void ConstraintForceSolver::Impl::clearBodies()
+{
+    cloneMap.clear();
+
+    bodyCollisionDetector.clearBodies();
+
+    geometryPairToLinkPairMap.clear();
+    constrainedLinkPairs.clear();
+    extraJointLinkPairs.clear();
+    constrain2dLinkPairs.clear();
+}    
+
+
 void ConstraintForceSolver::Impl::initBody(DyBody* body)
 {
     for(auto& subBody : body->subBodies()){
@@ -441,6 +455,7 @@ void ConstraintForceSolver::Impl::init2Dconstraint(DySubBody* subBody)
         body->setRootLink(link);
         link->p().setZero();
         link->R().setIdentity();
+        // The following code causes a memory leak
         subBodyFor2dConstraint = new DySubBody(link);
         initSubBody(subBodyFor2dConstraint);
     }
@@ -467,33 +482,23 @@ void ConstraintForceSolver::Impl::init2Dconstraint(DySubBody* subBody)
 
 
 // initialize extra joints for making closed links
-void ConstraintForceSolver::Impl::initExtraJoint(ExtraJoint& extraJoint)
+void ConstraintForceSolver::Impl::initExtraJoint(ExtraJoint* extraJoint)
 {
-    if(!extraJoint.link(0) || !extraJoint.link(1)){
+    if(!extraJoint->link(0) || !extraJoint->link(1)){
         return;
     }
     
     ExtraJointLinkPairPtr linkPair = std::make_shared<ExtraJointLinkPair>();
-    linkPair->isBelongingToSameSubBody = extraJoint.isForLinksOfSameBody();
+    linkPair->isBelongingToSameSubBody = extraJoint->isForLinksOfSameBody();
     linkPair->isNonContactConstraint = true;
     
-    if(extraJoint.type() == ExtraJoint::EJ_PISTON){
+    if(extraJoint->type() == ExtraJoint::Piston){
         linkPair->constraintPoints.resize(2);
-        // generate two vectors orthogonal to the joint axis
-        Vector3 u = Vector3::Zero();
-        int minElem = 0;
-        const Vector3& axis = extraJoint.axis();
-        for(int i=1; i < 3; ++i){
-            if(fabs(axis(i)) < fabs(axis(minElem))){
-                minElem = i;
-            }
-        }
-        u(minElem) = 1.0;
-        const Vector3 t1 = axis.cross(u).normalized();
-        linkPair->jointConstraintAxes[0] = t1;
-        linkPair->jointConstraintAxes[1] = axis.cross(t1).normalized();
+        auto R = extraJoint->localRotation(0);
+        linkPair->jointConstraintAxes[0] = R.col(1); // Y
+        linkPair->jointConstraintAxes[1] = R.col(2); // Z
 
-    } else if(extraJoint.type() == ExtraJoint::EJ_BALL){
+    } else if(extraJoint->type() == ExtraJoint::Ball){
         linkPair->constraintPoints.resize(3);
         linkPair->jointConstraintAxes[0] = Vector3(1.0, 0.0, 0.0);
         linkPair->jointConstraintAxes[1] = Vector3(0.0, 1.0, 0.0);
@@ -508,8 +513,8 @@ void ConstraintForceSolver::Impl::initExtraJoint(ExtraJoint& extraJoint)
     }
 
     for(int i=0; i < 2; ++i){
-        linkPair->link[i] = static_cast<DyLink*>(extraJoint.link(i));
-        linkPair->jointPoint[i] = extraJoint.point(i);
+        linkPair->link[i] = static_cast<DyLink*>(extraJoint->link(i));
+        linkPair->jointPoint[i] = extraJoint->point(i);
     }
 
     extraJointLinkPairs.push_back(linkPair);
@@ -518,17 +523,17 @@ void ConstraintForceSolver::Impl::initExtraJoint(ExtraJoint& extraJoint)
 
 void ConstraintForceSolver::Impl::initWorldExtraJoints()
 {
-    for(auto& extraJoint : world.extraJoints()){
+    for(auto& orgJoint : world.extraJoints()){
+        ExtraJointPtr joint = new ExtraJoint(orgJoint->type());
         for(int i=0; i < 2; ++i){
-            if(!extraJoint.link(i)){
-                if(auto body = world.body(extraJoint.bodyName(i))){
-                    if(auto link = body->link(extraJoint.linkName(i))){
-                        extraJoint.setLink(i, link);
-                    }
+            if(auto body = world.body(orgJoint->bodyName(i))){
+                if(auto link = body->link(orgJoint->linkName(i))){
+                    joint->setLink(i, link);
+                    joint->setLocalPosition(i, orgJoint->localPosition(i));
                 }
             }
         }
-        initExtraJoint(extraJoint);
+        initExtraJoint(joint);
     }
 }
 
@@ -542,7 +547,7 @@ void ConstraintForceSolver::Impl::initialize(void)
         //os << setprecision(50);
     }
 
-    cloneMap.clear();
+    clearBodies();
 
     if(CFS_MCP_DEBUG){
         numGaussSeidelTotalCalls = 0;
@@ -552,13 +557,7 @@ void ConstraintForceSolver::Impl::initialize(void)
 
     if(!bodyCollisionDetector.collisionDetector()){
         bodyCollisionDetector.setCollisionDetector(new AISTCollisionDetector);
-    } else {
-        bodyCollisionDetector.clearBodies();
     }
-    geometryPairToLinkPairMap.clear();
-    constrainedLinkPairs.clear();
-    extraJointLinkPairs.clear();
-    constrain2dLinkPairs.clear();
 
     initializeContactMaterials();
 
@@ -1314,7 +1313,8 @@ void ConstraintForceSolver::Impl::initABMForceElementsWithNoExtForce(DySubBody* 
 
         if(i > 0){
             if(!link->isFixedJoint()){
-                link->cfs.uu0  = link->uu() + link->u() - (link->sv().dot(link->cfs.pf0) + link->sw().dot(link->cfs.ptau0));
+                double u = stdx::clamp(link->u(), link->u_lower(), link->u_upper());
+                link->cfs.uu0  = link->uu() + u - (link->sv().dot(link->cfs.pf0) + link->sw().dot(link->cfs.ptau0));
                 link->cfs.uu = link->cfs.uu0;
             }
         }
@@ -2364,17 +2364,13 @@ shared_ptr<CollisionLinkPairList> ConstraintForceSolver::Impl::getCollisions()
 
         for(int j=0; j < numConstraintsInPair; ++j){
             ConstraintPoint& constraint = source.constraintPoints[j];
-            dest->collisions.push_back(Collision());
-            Collision& col = dest->collisions.back();
+            dest->collisions().push_back(Collision());
+            Collision& col = dest->collisions().back();
             col.point = constraint.point;
             col.normal = constraint.normalTowardInside[1];
             col.depth = constraint.depth;
         }
-        for(int j=0; j < 2; ++j){
-            auto link = source.link[j];
-            dest->body[j] = link->body();
-            dest->link[j] = link;
-        }
+        dest->setLinkPair(source.link[0], source.link[1]);
         collisionPairs->push_back(dest);
     }
 

@@ -327,8 +327,10 @@ void CoordinateFrameListItem::Impl::updateFrameItems()
 CoordinateFrameItem* CoordinateFrameListItem::Impl::createFrameItem(CoordinateFrame* frame)
 {
     CoordinateFrameItem* item = new CoordinateFrameItem(frame);
-    if(itemizationMode == SubItemization || frameList->isDefaultFrameId(frame->id())){
-        item->setAttribute(Item::SubItem);
+    if(frameList->isDefaultFrameId(frame->id())){
+        item->setAttributes(Item::SubItem);
+    } else if(itemizationMode == SubItemization){
+        item->setAttributes(Item::SubItem | Item::IncludedInUnifiedEditHistory);
     } else if(itemizationMode == IndependentItemization){
         item->setAttribute(Item::Attached);
     }
@@ -574,18 +576,19 @@ bool CoordinateFrameListItem::switchFrameMode(CoordinateFrame* frame, int mode, 
     if(!parentLocation){
         return false;
     }
+    if(!frame->setMode(mode)){
+        return false;
+    }
+
     auto T_base = parentLocation->getGlobalLocation();
     if(mode == CoordinateFrame::Global){
         frame->setPosition(T_base * frame->T());
     } else { // Local
         frame->setPosition(T_base.inverse(Eigen::Isometry) * frame->T());
     }
-    frame->setMode(mode);
-
     if(doNotify){
         frame->notifyUpdate(CoordinateFrame::ModeUpdate | CoordinateFrame::PositionUpdate);
     }
-    
     return true;
 }
 
@@ -659,7 +662,7 @@ void CoordinateFrameListItem::Impl::setFrameMarkerVisible(CoordinateFrame* frame
         if(on){
             self->setChecked(true);
         } else {
-            if(relativeFrameMarkerGroup->empty() == 0 && frameMarkerGroup->numChildren() <= 1){
+            if(relativeFrameMarkerGroup->empty() && frameMarkerGroup->numChildren() <= 1){
                 self->setChecked(false);
             }
         }
@@ -779,7 +782,7 @@ void FrameMarker::updateFrameLock()
     bool updated = false;
     if(weakFrameItem){
         if(auto item = weakFrameItem.lock()){
-            setDragEnabled(item->isLocationEditable());
+            setDragEnabled(!item->isLocationLocked());
             updated = true;
         }
     }
@@ -852,7 +855,7 @@ void CoordinateFrameListItem::Impl::storeLockedFrameIndices(Archive& archive)
     int index = frameList->hasFirstElementAsDefaultFrame() ? 1 : 0;
     while(index < n){
         if(auto frameItem = self->findFrameItemAt(index)){
-            if(!frameItem->isLocationEditable()){
+            if(frameItem->isLocationLocked()){
                 indices->append(index);
             }
         }
@@ -902,7 +905,7 @@ void CoordinateFrameListItem::Impl::completeFrameItemRestoration(const Archive& 
             for(int i=0; i < locked.size(); ++i){
                 int index = locked[i].toInt();
                 if(auto frameItem = self->findFrameItemAt(index)){
-                    frameItem->setLocationEditable(false);
+                    frameItem->setLocationLocked(true);
                 }
             }
         }

@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_DYWORLD_H
 #define CNOID_BODY_DYWORLD_H
 
@@ -19,6 +14,8 @@ class CNOID_EXPORT DyWorldBase
 public:
     DyWorldBase();
     virtual ~DyWorldBase();
+
+    virtual void clearBodies();
 
     int numBodies() const { return bodies_.size(); }
     DyBody* body(int index) { return bodies_[index]; }
@@ -41,7 +38,6 @@ public:
     int addBody(DyBody* body);
 
     bool hasHighGainDynamics() const { return hasHighGainDynamics_; }
-    void clearBodies();
     void clearCollisionPairs();
     void setTimeStep(double dt);
     double timeStep(void) const { return timeStep_; }
@@ -96,9 +92,9 @@ public:
     */
     std::pair<int,bool> getIndexOfLinkPairs(DyLink* link1, DyLink* link2);
 
-    std::vector<ExtraJoint>& extraJoints() { return extraJoints_; }
+    std::vector<ExtraJointPtr>& extraJoints() { return extraJoints_; }
     void clearExtraJoints() { extraJoints_.clear(); }
-    void addExtraJoint(ExtraJoint& extraJoint){ extraJoints_.push_back(extraJoint); }
+    void addExtraJoint(ExtraJoint* extraJoint){ extraJoints_.push_back(extraJoint); }
 
 private:
     double currentTime_;
@@ -124,7 +120,7 @@ private:
 
     int numRegisteredLinkPairs;
 
-    std::vector<ExtraJoint> extraJoints_;
+    std::vector<ExtraJointPtr> extraJoints_;
 
     void extractInternalBodies(Link* link);    
 };
@@ -136,12 +132,17 @@ public:
 
     DyWorld() : constraintForceSolver(*this) { }
 
-    virtual void initialize() {
+    virtual void clearBodies() override {
+        DyWorldBase::clearBodies();
+        constraintForceSolver.clearBodies();
+    }
+
+    virtual void initialize() override {
         DyWorldBase::initialize();
         constraintForceSolver.initialize();
     }
 
-    virtual void calcNextState(){
+    virtual void calcNextState() override {
         DyWorldBase::setVirtualJointForces();
         constraintForceSolver.solve();
         DyWorldBase::calcNextState();

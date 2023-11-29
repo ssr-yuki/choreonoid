@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_UTIL_STD_SCENE_READER_H
 #define CNOID_UTIL_STD_SCENE_READER_H
 
@@ -61,6 +56,7 @@ public:
     bool readRotation(const Mapping* info, const char* key, Matrix3& out_R) const;
     bool readRotation(const Mapping* info, std::initializer_list<const char*> keys, Matrix3& out_R) const;
     bool extractRotation(Mapping* info, Matrix3& out_R) const;
+    bool extractRotation(Mapping* info, const char* key, Matrix3& out_R) const;
     bool readTranslation(const Mapping* info, Vector3& out_p) const;
     bool readTranslation(const Mapping* info, const char* key, Vector3& out_p) const;
     bool extractTranslation(Mapping* info, Vector3& out_p) const;
@@ -72,15 +68,15 @@ public:
         SgNodePtr scene;
         ValueNodePtr info;
         std::string uri;
+        std::string file;
         std::string directory;
         std::string fragment;
+        std::string metadata;
     };
     Resource readResourceNode(Mapping* info);
     
     typedef std::function<std::string(const std::string& path, std::ostream& os)> UriSchemeHandler;
     
-    static void registerUriSchemeHandler(const std::string& scheme, UriSchemeHandler handler);
-
     [[deprecated("Use readAngle(const Mapping* info, const char* key, double& angle) const")]]
     bool readAngle(const Mapping& info, const char* key, double& angle) const;
     [[deprecated("Use readAngle(const Mapping* info, const char* key, float& angle) const")]]

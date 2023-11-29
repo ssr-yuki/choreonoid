@@ -1,5 +1,3 @@
-# @author Shin'ichiro Nakaoka
-
 #set(CMAKE_BUILD_TYPE Debug)
 #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
 #set_source_files_properties(SimulatorItem.cpp PROPERTIES COMPILE_FLAGS "-O0 -g")
@@ -16,23 +14,28 @@ set(sources
   BodyItemKinematicsKitManager.cpp
   LinkOffsetFrameListItem.cpp
   KinematicBodyItemSet.cpp
+  BodyGeometryMeasurementTracker.cpp
   MaterialTableItem.cpp
   SimulatorItem.cpp
   SubSimulatorItem.cpp
   ControllerItem.cpp
   SimpleControllerItem.cpp
   BodyMotionControllerItem.cpp
+  CollisionDetectionControllerItem.cpp
   RegionIntrusionDetectorItem.cpp
-  ControllerLogItem.cpp
+  BodyStateLoggerItem.cpp
   BodyContactPointLoggerItem.cpp
+  BodyContactPointLogItem.cpp
   SimulationScriptItem.cpp
   AISTSimulatorItem.cpp
   KinematicSimulatorItem.cpp
   GLVisionSimulatorItem.cpp
   FisheyeLensConverter.cpp
   BodyMotionItem.cpp
-  ZMPSeqItem.cpp
+  BodyMotionEngine.cpp
   MultiDeviceStateSeqItem.cpp
+  MultiDeviceStateSeqEngine.cpp
+  ZMPSeqItem.cpp
   WorldLogFileItem.cpp
   IoConnectionMapItem.cpp
   SensorVisualizerItem.cpp
@@ -40,7 +43,6 @@ set(sources
   BodySyncCameraConfigDialog.cpp
   BodyMarkerItem.cpp
   BodySuperimposerAddon.cpp
-  BodyMotionEngine.cpp
   BodyOverwriteAddon.cpp
   BodyElementOverwriteItem.cpp
   LinkOverwriteItem.cpp
@@ -63,9 +65,12 @@ set(sources
   BodyStateView.cpp
   DigitalIoDeviceView.cpp
   IoConnectionView.cpp
+  BodyPositionGraphViewBase.cpp
   JointGraphView.cpp
   LinkGraphView.cpp
   BodyLinkView.cpp
+  BodyLibraryView.cpp
+  BodyLibrarySelectionDialog.cpp
   HrpsysFileIO.cpp
   CollisionSeq.cpp
   CollisionSeqItem.cpp
@@ -88,9 +93,12 @@ set(headers
   SubSimulatorItem.h
   ControllerItem.h
   SimpleControllerItem.h
+  CollisionDetectionControllerItem.h
   RegionIntrusionDetectorItem.h
   ControllerLogItem.h
+  BodyStateLoggerItem.h
   BodyContactPointLoggerItem.h
+  BodyContactPointLogItem.h
   SimulationScriptItem.h
   AISTSimulatorItem.h
   KinematicSimulatorItem.h
@@ -119,6 +127,8 @@ set(headers
   JointDisplacementWidgetSet.h
   MultiBodyJointDisplacementWidget.h
   IoConnectionView.h
+  BodyLibraryView.h
+  BodyLibrarySelectionDialog.h
   CollisionSeq.h
   CollisionSeqItem.h
   CollisionSeqEngine.h
@@ -141,7 +151,7 @@ if(MSVC)
   set(boost_libraries ${boost_libraries} ${Boost_BZIP2_LIBRARY} ${Boost_ZLIB_LIBRARY})
 endif()
 
-target_link_libraries(${target} CnoidBody ${boost_libraries})
+target_link_libraries(${target} PUBLIC CnoidBody CnoidGLSceneRenderer PRIVATE ${boost_libraries})
 
 if(ENABLE_PYTHON)
   add_subdirectory(pybind11)

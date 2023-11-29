@@ -1,8 +1,3 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "SceneGraph.h"
 #include "SceneNodeClassRegistry.h"
 #include "CloneMap.h"
@@ -90,6 +85,21 @@ SgObject* SgObject::childObject(int /* index */)
 }
 
 
+SgObject* SgObject::findObject_(std::function<bool(SgObject* object)>& pred)
+{
+    if(pred(this)){
+        return this;
+    }
+    int n = numChildObjects();
+    for(int i=0; i < n; ++i){
+        if(auto found = childObject(i)->findObject_(pred)){
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+
 void SgObject::notifyUpperNodesOfUpdate(SgUpdate& update)
 {
     notifyUpperNodesOfUpdate(update, update.hasAction(SgUpdate::GeometryModified));
@@ -161,12 +171,45 @@ const std::string& SgObject::uri() const
 }
 
 
+std::string SgObject::localFilePath() const
+{
+    if(uriInfo){
+        if(uriInfo->uri.compare(0, 7, "file://") == 0){
+            return uriInfo->uri.substr(7);
+        } else {
+            return uriInfo->uri;
+        }
+    }
+    return string();
+}
+
+
 const std::string& SgObject::absoluteUri() const
 {
     if(!uriInfo){
         uriInfo.reset(new UriInfo);
     }
     return uriInfo->absoluteUri;
+}
+
+
+std::string SgObject::localFileAbsolutePath() const
+{
+    if(uriInfo){
+        if(uriInfo->absoluteUri.compare(0, 7, "file://") == 0){
+            return uriInfo->absoluteUri.substr(7);
+        }
+    }
+    return string();
+}
+
+
+const std::string& SgObject::uriObjectName() const
+{
+    if(!uriInfo){
+        uriInfo.reset(new UriInfo);
+    }
+    return uriInfo->objectName;
 }
 
 
@@ -179,7 +222,16 @@ const std::string& SgObject::uriFragment() const
 }
 
 
-void SgObject::setUriByFilePathAndBaseDirectory
+const std::string& SgObject::uriMetadataString() const
+{
+    if(!uriInfo){
+        uriInfo.reset(new UriInfo);
+    }
+    return uriInfo->metadata;
+}
+
+
+void SgObject::setUriWithFilePathAndBaseDirectory
 (const std::string& filePath, const std::string& baseDirectory)
 {
     filesystem::path path(fromUTF8(filePath));
@@ -190,17 +242,30 @@ void SgObject::setUriByFilePathAndBaseDirectory
         }
         path = baseDirPath / path;
     }
-    setUri(filePath, format("file://{0}", toUTF8(path.generic_string())));
+    setUri(filePath, toUTF8(path.generic_string()));
 }
 
 
-void SgObject::setUriByFilePathAndCurrentDirectory(const std::string& filePath)
+void SgObject::setUriByFilePathAndBaseDirectory
+(const std::string& filePath, const std::string& baseDirectory)
+{
+    setUriWithFilePathAndBaseDirectory(filePath, baseDirectory);
+}
+
+
+void SgObject::setUriWithFilePathAndCurrentDirectory(const std::string& filePath)
 {
     filesystem::path path(fromUTF8(filePath));
     if(path.is_relative()){
         path = filesystem::current_path() / path;
     }
-    setUri(filePath, format("file://{0}", toUTF8(path.generic_string())));
+    setUri(filePath, toUTF8(path.generic_string()));
+}
+
+
+void SgObject::setUriByFilePathAndCurrentDirectory(const std::string& filePath)
+{
+    setUriWithFilePathAndCurrentDirectory(filePath);
 }
 
 
@@ -218,12 +283,30 @@ void SgObject::setUri(const std::string& uri, const std::string& absoluteUri)
 }
 
 
+void SgObject::setUriObjectName(const std::string& name)
+{
+    if(!uriInfo){
+        uriInfo.reset(new UriInfo);
+    }
+    uriInfo->objectName = name;
+}
+
+
 void SgObject::setUriFragment(const std::string& fragment)
 {
     if(!uriInfo){
         uriInfo.reset(new UriInfo);
     }
     uriInfo->fragment = fragment;
+}
+
+
+void SgObject::setUriMetadataString(const std::string& data)
+{
+    if(!uriInfo){
+        uriInfo.reset(new UriInfo);
+    }
+    uriInfo->metadata = data;
 }
 
 
@@ -605,7 +688,11 @@ void SgGroup::moveChildrenTo(SgGroup* group, SgUpdateRef update)
 void SgGroup::insertChainedGroup(SgGroup* group, SgUpdateRef update)
 {
     moveChildrenTo(group);
-    addChild(group, update);
+    addChild(group);
+    if(update){
+        update->addAction(SgUpdate::Added);
+        group->notifyUpdate(*update);
+    }
 }
 
 
@@ -628,10 +715,10 @@ void SgGroup::removeChainedGroup(SgGroup* group, SgUpdateRef update)
             parent->removeChild(group);
             group->moveChildrenTo(parent);
             if(update){
+                update->addAction(SgUpdate::Removed);
                 update->clearPath();
                 update->pushNode(group);
-                notifyUpperNodesOfUpdate(
-                    update->withAction(SgUpdate::Removed), group->hasAttribute(Geometry));
+                notifyUpperNodesOfUpdate(*update);
             }
             break;
         }

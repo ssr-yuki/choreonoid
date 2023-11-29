@@ -1,8 +1,3 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #include "ZMPSeqItem.h"
 #include "BodyItem.h"
 #include "BodyMotionItem.h"
@@ -19,29 +14,17 @@ using fmt::format;
 
 namespace {
 
-AbstractSeqItem* createZMPSeqItem(std::shared_ptr<AbstractSeq> seq)
-{
-    auto zmpseq = dynamic_pointer_cast<ZMPSeq>(seq);
-    if(zmpseq){
-        auto item = new ZMPSeqItem(zmpseq);
-        item->setName("ZMP");
-        return item;
-    }
-    return nullptr;
-}
-
-
 class ZMPSeqEngine : public TimeSyncItemEngine
 {
     shared_ptr<ZMPSeq> seq;
-    BodyItemPtr bodyItem;
+    weak_ref_ptr<BodyItem> bodyItemRef;
     ScopedConnection connection;
     
 public:
     ZMPSeqEngine(ZMPSeqItem* seqItem, BodyItem* bodyItem)
         : TimeSyncItemEngine(seqItem),
           seq(seqItem->zmpseq()),
-          bodyItem(bodyItem)
+          bodyItemRef(bodyItem)
     {
         connection = seqItem->sigUpdated().connect([this](){ refresh(); });
     }
@@ -49,27 +32,19 @@ public:
     virtual bool onTimeChanged(double time) override
     {
         bool isValidTime = false;
-        if(!seq->empty()){
-            const Vector3& zmp = seq->at(seq->clampFrameIndex(seq->frameOfTime(time), isValidTime));
-            if(seq->isRootRelative()){
-                bodyItem->setZmp(bodyItem->body()->rootLink()->T() * zmp);
-            } else {
-                bodyItem->setZmp(zmp);
+        if(auto bodyItem = bodyItemRef.lock()){
+            if(!seq->empty()){
+                const Vector3& zmp = seq->at(seq->clampFrameIndex(seq->frameOfTime(time), isValidTime));
+                if(seq->isRootRelative()){
+                    bodyItem->setZmp(bodyItem->body()->rootLink()->T() * zmp);
+                } else {
+                    bodyItem->setZmp(zmp);
+                }
             }
         }
         return isValidTime;
     }
 };
-
-
-TimeSyncItemEngine* createZMPSeqEngine(BodyItem* bodyItem, AbstractSeqItem* seqItem)
-{
-    ZMPSeqItem* item = dynamic_cast<ZMPSeqItem*>(seqItem);
-    if(item){
-        return new ZMPSeqEngine(item, bodyItem);
-    }
-    return nullptr;
-}
 
 }
 
@@ -77,9 +52,26 @@ TimeSyncItemEngine* createZMPSeqEngine(BodyItem* bodyItem, AbstractSeqItem* seqI
 void ZMPSeqItem::initializeClass(ExtensionManager* ext)
 {
     ext->itemManager().registerClass<ZMPSeqItem, Vector3SeqItem>(N_("ZMPSeqItem"));
+
+    auto& contentName = ZMPSeq::seqContentName();
     
-    BodyMotionItem::addExtraSeqItemFactory(ZMPSeq::key(), createZMPSeqItem);
-    BodyMotionEngine::addExtraSeqEngineFactory(ZMPSeq::key(), createZMPSeqEngine);
+    BodyMotionItem::registerExtraSeqContent(
+        contentName,
+        [](std::shared_ptr<AbstractSeq> seq) -> AbstractSeqItem* {
+            if(auto zmpseq = dynamic_pointer_cast<ZMPSeq>(seq)){
+                return new ZMPSeqItem(zmpseq);
+            }
+            return nullptr;
+        });
+    
+    BodyMotionEngine::registerExtraSeqEngineFactory(
+        contentName,
+        [](BodyItem* bodyItem, AbstractSeqItem* seqItem) -> TimeSyncItemEngine* {
+            if(auto item = dynamic_cast<ZMPSeqItem*>(seqItem)){
+                return new ZMPSeqEngine(item, bodyItem);
+            }
+            return nullptr;
+        });
 }
 
 
@@ -113,7 +105,7 @@ ZMPSeqItem::~ZMPSeqItem()
 
 bool ZMPSeqItem::makeRootRelative(bool on)
 {
-    BodyMotionItem* bodyMotionItem = dynamic_cast<BodyMotionItem*>(parentItem());
+    BodyMotionItem* bodyMotionItem = parentItem<BodyMotionItem>();
     auto& os = mvout(false);
     if(bodyMotionItem){
         if(cnoid::makeRootRelative(*zmpseq_, *bodyMotionItem->motion(), on)){

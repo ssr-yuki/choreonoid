@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #include "StdBodyLoader.h"
 #include "BodyLoader.h"
 #include "BodyHandlerManager.h"
@@ -17,7 +12,6 @@
 #include <fmt/format.h>
 #include <unordered_map>
 #include <mutex>
-#include <cstdlib>
 #include "gettext.h"
 #include <iostream>
 
@@ -32,69 +26,6 @@ std::mutex customNodeFunctionMutex;
 typedef function<bool(StdBodyLoader* loader, Mapping* node)> CustomNodeFunction;
 typedef map<string, CustomNodeFunction> CustomNodeFunctionMap;
 CustomNodeFunctionMap customNodeFunctions;
-
-class ROSPackageSchemeHandler
-{
-    vector<string> packagePaths;
-    
-public:
-    ROSPackageSchemeHandler()
-    {
-        const char* str = getenv("ROS_PACKAGE_PATH");
-        if(str){
-            do {
-                const char* begin = str;
-                while(*str != ':' && *str) str++;
-                packagePaths.push_back(string(begin, str));
-            } while (0 != *str++);
-        }
-    }
-
-    string operator()(const string& path, std::ostream& os)
-    {
-        filesystem::path filepath(fromUTF8(path));
-        auto iter = filepath.begin();
-        if(iter == filepath.end()){
-            return string();
-        }
-        
-        filesystem::path directory = *iter++;
-        filesystem::path relativePath;
-        while(iter != filepath.end()){
-            relativePath /= *iter++;
-        }
-
-        bool found = false;
-        filesystem::path combined;
-        
-        for(auto element : packagePaths){
-            filesystem::path packagePath(element);
-            combined = packagePath / filepath;
-            if(exists(combined)){
-                found = true;
-                break;
-            }
-            combined = packagePath / relativePath;
-            if(exists(combined)){
-                found = true;
-                break;
-            }
-        }
-
-        if(found){
-            return toUTF8(combined.string());
-        } else {
-            os << format(_("\"{}\" is not found in the ROS package directories."), path) << endl;
-            return string();
-        }
-    }
-};
-
-struct ROSPackageSchemeHandlerRegistration {
-    ROSPackageSchemeHandlerRegistration(){
-        StdSceneReader::registerUriSchemeHandler("package", ROSPackageSchemeHandler());
-    }
-} rosPackageSchemeHandlerRegistration;
 
 }
 
@@ -371,6 +302,9 @@ public:
     }
     bool extractRotation(Mapping* node, Matrix3& out_R) const {
         return sceneReader.extractRotation(node, out_R);
+    }
+    bool extractRotation(Mapping* node, const char* key, Matrix3& out_R) const {
+        return sceneReader.extractRotation(node, key, out_R);
     }
     bool readTranslation(const Mapping* node, Vector3& out_p) const {
         return sceneReader.readTranslation(node, out_p);
@@ -1963,8 +1897,6 @@ void StdBodyLoader::Impl::addSubBodyLinks(const Body* subBody, Mapping* node)
     }
 
     LinkPtr rootLink = subBodyClone->rootLink();
-
-    readLinkContents(node, rootLink);
     
     LinkInfoPtr linkInfo = new LinkInfo;
     linkInfo->link = rootLink;
@@ -1972,13 +1904,17 @@ void StdBodyLoader::Impl::addSubBodyLinks(const Body* subBody, Mapping* node)
     node->read("parent", linkInfo->parent);
     linkInfos.push_back(linkInfo);
 
-    // Delete the sub body clone to relase its devices
+    // Delete the sub body clone to relase its links and devices
     // so that the devices can be added to the main body.
     subBodyClone.reset();
 
     for(auto& info : subBodyDevices){
         body->addDevice(info.device, info.link);
     }
+
+    // Read the link contents written in the main body file.
+    // The contents overwrite the sub body link contents.
+    readLinkContents(node, rootLink);
 }
 
 
@@ -1998,41 +1934,68 @@ void StdBodyLoader::Impl::readExtraJoints(Mapping* topNode)
 
 void StdBodyLoader::Impl::readExtraJoint(Mapping* info)
 {
-    ExtraJoint joint;
+    ExtraJointPtr joint = new ExtraJoint;
 
-    joint.setLink(0, body->link(info->get({ "link1_name", "link1Name" }).toString()));
-    joint.setLink(1, body->link(info->get({ "link2_name", "link2Name" }).toString()));
+    string link1Name;
+    string link2Name;
+
+    if(!extract(info, { "link1_name", "link1Name" }, link1Name)){
+        info->throwException(_("link1_name is not specified"));
+    }
+    if(!extract(info, { "link2_name", "link2Name" }, link2Name)){
+        info->throwException(_("link2_name is not specified"));
+    }
+
+    joint->setLink(0, body->link(link1Name));
+    joint->setLink(1, body->link(link2Name));
 
     for(int i=0; i < 2; ++i){
-        if(!joint.link(i)){
+        if(!joint->link(i)){
             info->throwException(
-                format(_("The link specified in \"link{}Name\" is not found"), (i + 1)));
+                format(_("The link specified in \"link{}_name\" is not found"), (i + 1)));
         }
     }
 
     string jointType;
-    if(!info->read({ "joint_type", "jointType" }, jointType)){
+    if(!extract(info, { "joint_type", "jointType" }, jointType)){
         info->throwException(_("The joint type must be specified with the \"joint_type\" key"));
     }
-    if(jointType == "piston"){
-        joint.setType(ExtraJoint::EJ_PISTON);
-        auto axisNode = info->find({ "axis", "jointAxis" });
-        if(axisNode->isValid()){
-            readAxis(axisNode, v);
-            joint.setAxis(v);
-        } else {
-            info->throwException(_("The axis must be specified for the pistion type"));
-        }
+    if(jointType == "fixed"){
+        joint->setType(ExtraJoint::Fixed);
+    } else if(jointType == "hinge"){
+        joint->setType(ExtraJoint::Hinge);
     } else if(jointType == "ball"){
-        joint.setType(ExtraJoint::EJ_BALL);
+        joint->setType(ExtraJoint::Ball);
+    } else if(jointType == "piston"){
+        joint->setType(ExtraJoint::Piston);
     } else {
         info->throwException(format(_("Joint type \"{}\" is not available"), jointType));
     }
 
-    readEx(info, { "link1_local_pos", "link1LocalPos" }, v);
-    joint.setPoint(0, v);
-    readEx(info, { "link2_local_pos", "link2LocalPos" }, v);
-    joint.setPoint(1, v);
+    if(joint->type() == ExtraJoint::Hinge || joint->type() == ExtraJoint::Piston){
+        if(extractEigen(info, { "axis_in_link1", "axis", "jointAxis" }, v)){
+            joint->setAxis(0, v);
+        }
+        if(extractEigen(info, { "axis_in_link2" }, v)){
+            joint->setAxis(1, v);
+        }
+    }
+
+    Matrix3 R;
+    if(extractRotation(info, "rotation_in_link1", R)){
+        joint->setLocalRotation(0, R);
+    }
+    if(extractRotation(info, "rotation_in_link2", R)){
+        joint->setLocalRotation(1, R);
+    }
+    if(extractEigen(info, { "translation_in_link1", "link1_local_pos", "link1LocalPos" }, v)){
+        joint->setPoint(0, v);
+    }
+    if(extractEigen(info, { "translation_in_link2", "link2_local_pos", "link2LocalPos" }, v)){
+        joint->setPoint(1, v);
+    }
+    
+    joint->resetInfo(info);
 
     body->addExtraJoint(joint);
 }

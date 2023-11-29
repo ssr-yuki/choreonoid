@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro NAKAOKA
-*/
-
 #include "KinematicFaultChecker.h"
 #include "BodyItem.h"
 #include "BodyMotionItem.h"
@@ -24,6 +20,7 @@
 #include <cnoid/BodyCollisionDetector>
 #include <cnoid/AISTCollisionDetector>
 #include <cnoid/IdPair>
+#include <QButtonGroup>
 #include <QDialogButtonBox>
 #include <QBoxLayout>
 #include <QFrame>
@@ -300,7 +297,6 @@ void KinematicFaultChecker::Impl::apply()
                 
                 double beginningTime = 0.0;
                 double endingTime = motionItem->motion()->getTimeLength();
-                std::numeric_limits<double>::max();
                 if(onlyTimeBarRangeCheck.isChecked()){
                     TimeBar* timeBar = TimeBar::instance();
                     beginningTime = timeBar->minTime();
@@ -350,6 +346,7 @@ int KinematicFaultChecker::Impl::checkFaults
 
     auto body = bodyItem->body();
     auto motion = motionItem->motion();
+    motion->updateLinkPosSeqAndJointPosSeqWithBodyPositionSeq();
     auto qseq = motion->jointPosSeq();;
     auto pseq = motion->linkPosSeq();
     

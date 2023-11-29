@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_DYBODY_H
 #define CNOID_BODY_DYBODY_H
 
@@ -41,7 +36,6 @@ public:
 
 private:
     DyLinkPtr rootLink_;
-    DyBodyPtr body_;
     std::vector<DyLink*> links_;
     std::unique_ptr<ForwardDynamics> forwardDynamics_;
 

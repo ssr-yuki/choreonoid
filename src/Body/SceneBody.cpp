@@ -58,11 +58,11 @@ public:
     SgTransparentGroupPtr transparentGroup;
 
     Impl(SceneLink* self, Link* link);
-    void insertEffectGroup(SgGroup* effect, SgUpdateRef update);
-    bool removeEffectGroup(SgGroup* parent, SgGroupPtr effect, SgUpdateRef update);
+    void insertEffectGroup(SgGroup* effect, SgUpdateRef& update);
+    bool removeEffectGroup(SgGroup* parent, SgGroupPtr effect, SgUpdateRef& update);
     void cloneShape(CloneMap& cloneMap);
     void clearSceneDevices();
-    void setTransparency(float transparency, SgUpdateRef update = SgUpdateRef());
+    void setTransparency(float transparency, SgUpdateRef update = nullptr);
 };
 
 class SceneBody::Impl
@@ -73,10 +73,18 @@ public:
     SgGroupPtr lastEffectGroup;
     std::vector<SceneDevicePtr> sceneDevices;
     std::function<SceneLink*(Link*)> sceneLinkFactory;
+    SgGroupPtr multiplexSceneBodyGroup;
+    std::vector<SceneBodyPtr> multiplexSceneBodies;
+    std::vector<SceneBodyPtr> multiplexSceneBodyCache;
+    ScopedConnection existenceConnection;
 
     Impl(SceneBody* self);
-    void cloneShape(CloneMap& cloneMap);
+    void updateLinkPositions(Body* body, vector<SceneLinkPtr>& sceneLinks, SgUpdateRef& update);
+    void updateMultiplexBodyPositions(SgUpdateRef& update);
+    SceneBody* addMultiplexSceneBody(SgUpdateRef& update);
+    void removeSubsequentMultiplexSceneBodies(int index, SgUpdateRef& update, bool doCache);
     void clearSceneDevices();    
+    void onBodyExistenceChanged(bool on);
 };
 
 }
@@ -139,7 +147,7 @@ void SceneLink::insertEffectGroup(SgGroup* effect, SgUpdateRef update)
 }
 
 
-void SceneLink::Impl::insertEffectGroup(SgGroup* effect, SgUpdateRef update)
+void SceneLink::Impl::insertEffectGroup(SgGroup* effect, SgUpdateRef& update)
 {
     self->removeChild(topShapeGroup);
     effect->addChild(topShapeGroup);
@@ -157,7 +165,7 @@ void SceneLink::removeEffectGroup(SgGroup* effect, SgUpdateRef update)
 }
 
 
-bool SceneLink::Impl::removeEffectGroup(SgGroup* parent, SgGroupPtr effect, SgUpdateRef update)
+bool SceneLink::Impl::removeEffectGroup(SgGroup* parent, SgGroupPtr effect, SgUpdateRef& update)
 {
     if(parent == mainShapeGroup){
         return false;
@@ -409,6 +417,9 @@ void SceneBody::setBody(Body* body, std::function<SceneLink*(Link*)> sceneLinkFa
     body_ = body;
     impl->sceneLinkFactory = sceneLinkFactory;
     updateSceneModel();
+
+    impl->existenceConnection =
+        body->sigExistenceChanged().connect([this](bool on){ impl->onBodyExistenceChanged(on); });
 }
 
 
@@ -420,7 +431,10 @@ void SceneBody::updateSceneModel()
         impl->lastEffectGroup->clearChildren();
         sceneLinks_.clear();
     }
-        
+
+    SgUpdateRef noUpdate;
+    impl->removeSubsequentMultiplexSceneBodies(0, noUpdate, false);
+
     const int n = body_->numLinks();
     for(int i=0; i < n; ++i){
         Link* link = body_->link(i);
@@ -428,7 +442,7 @@ void SceneBody::updateSceneModel()
         impl->lastEffectGroup->addChild(sLink);
         sceneLinks_.push_back(sLink);
     }
-    updateLinkPositions();
+    impl->updateLinkPositions(body_, sceneLinks_, noUpdate);
 
     updateSceneDeviceModels(false);
     
@@ -461,23 +475,83 @@ void SceneBody::cloneShapes(CloneMap& cloneMap)
 }
 
 
-void SceneBody::updateLinkPositions()
+void SceneBody::updateLinkPositions(SgUpdateRef update)
 {
-    const int n = sceneLinks_.size();
+    // Main body
+    impl->updateLinkPositions(body_, sceneLinks_, update);
+
+    impl->updateMultiplexBodyPositions(update);
+}
+
+
+void SceneBody::Impl::updateLinkPositions(Body* body, vector<SceneLinkPtr>& sceneLinks, SgUpdateRef& update)
+{
+    int n = std::min(body->numLinks(), static_cast<int>(sceneLinks.size()));
     for(int i=0; i < n; ++i){
-        SceneLinkPtr& sLink = sceneLinks_[i];
-        sLink->setPosition(sLink->link()->position());
+        SceneLink* sceneLink = sceneLinks[i];
+        Link* link = body->link(i);
+        sceneLink->setPosition(link->position());
+        if(update){
+            sceneLink->notifyUpdate(*update);
+        }
     }
 }
 
 
-void SceneBody::updateLinkPositions(SgUpdate& update)
+void SceneBody::Impl::updateMultiplexBodyPositions(SgUpdateRef& update)
 {
-    const int n = sceneLinks_.size();
-    for(int i=0; i < n; ++i){
-        SceneLinkPtr& sLink = sceneLinks_[i];
-        sLink->setPosition(sLink->link()->position());
-        sLink->notifyUpdate(update);
+    auto multiplexBody = self->body_->nextMultiplexBody();
+    int multiplexBodyIndex = 0;
+    while(multiplexBody){
+        SceneBody* sceneBody;
+        if(multiplexBodyIndex < multiplexSceneBodies.size()){
+            sceneBody = multiplexSceneBodies[multiplexBodyIndex];
+        } else {
+            sceneBody = addMultiplexSceneBody(update);
+        }
+        auto& sceneLinks = sceneBody->sceneLinks_;
+        updateLinkPositions(multiplexBody, sceneLinks, update);
+        multiplexBody = multiplexBody->nextMultiplexBody();
+        ++multiplexBodyIndex;
+    }
+    removeSubsequentMultiplexSceneBodies(multiplexBodyIndex, update, true);
+}
+
+
+SceneBody* SceneBody::Impl::addMultiplexSceneBody(SgUpdateRef& update)
+{
+    SceneBodyPtr sceneBody;
+
+    if(multiplexSceneBodyCache.empty()){
+        sceneBody = new SceneBody(self->body_);
+        //sceneBody = new SceneBody(*self);
+    } else {
+        sceneBody = multiplexSceneBodyCache.back();
+        multiplexSceneBodyCache.pop_back();
+    }
+    multiplexSceneBodies.push_back(sceneBody);
+
+    if(!multiplexSceneBodyGroup){
+        multiplexSceneBodyGroup = new SgGroup;
+        self->addChild(multiplexSceneBodyGroup);
+    }
+    multiplexSceneBodyGroup->addChild(sceneBody, update);
+
+    return sceneBody;
+}
+
+
+void SceneBody::Impl::removeSubsequentMultiplexSceneBodies(int index, SgUpdateRef& update, bool doCache)
+{
+    int n = multiplexSceneBodies.size();
+    if(index < n){
+        for(size_t i = index; i < n; ++i){
+            multiplexSceneBodyGroup->removeChildAt(index, update);
+            if(doCache){
+                multiplexSceneBodyCache.push_back(multiplexSceneBodies[i]);
+            }
+        }
+        multiplexSceneBodies.resize(index);
     }
 }
 
@@ -515,6 +589,24 @@ void SceneBody::updateSceneDevices(double time)
     auto& sceneDevices = impl->sceneDevices;
     for(size_t i=0; i < sceneDevices.size(); ++i){
         sceneDevices[i]->updateScene(time);
+    }
+}
+
+
+void SceneBody::Impl::onBodyExistenceChanged(bool on)
+{
+    if(on){
+        self->addChildOnce(sceneLinkGroup);
+        if(multiplexSceneBodyGroup){
+            self->addChildOnce(multiplexSceneBodyGroup);
+        }
+        self->notifyUpdate(SgUpdate::ADDED);
+    } else {
+        self->removeChild(sceneLinkGroup);
+        if(multiplexSceneBodyGroup){
+            self->removeChild(multiplexSceneBodyGroup);
+        }
+        self->notifyUpdate(SgUpdate::REMOVED);
     }
 }
 

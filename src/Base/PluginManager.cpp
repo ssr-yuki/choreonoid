@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "PluginManager.h"
 #include "Plugin.h"
 #include "MainMenu.h"
@@ -11,6 +7,7 @@
 #include "MainWindow.h"
 #include "Action.h"
 #include <cnoid/MessageOut>
+#include <cnoid/ValueTree>
 #include <cnoid/ExecutablePath>
 #include <cnoid/Tokenizer>
 #include <cnoid/Config>
@@ -173,8 +170,8 @@ PluginManager::PluginManager()
 
 
 PluginManager::Impl::Impl()
-    : unloadPluginsLater([&](){ unloadPluginsActually(); }, LazyCaller::PRIORITY_LOW),
-      reloadPluginsLater([&](){ loadScannedPluginFiles(true); }, LazyCaller::PRIORITY_LOW)
+    : unloadPluginsLater([&](){ unloadPluginsActually(); }, LazyCaller::LowPriority),
+      reloadPluginsLater([&](){ loadScannedPluginFiles(true); }, LazyCaller::LowPriority)
 {
     mout = MessageOut::master();
     mainMenu = nullptr;

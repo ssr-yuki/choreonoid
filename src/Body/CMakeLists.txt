@@ -1,5 +1,3 @@
-# @author Shin'ichiro Nakaoka
-
 #set(CMAKE_BUILD_TYPE Debug)
 #set_source_files_properties(SceneBody.cpp PROPERTIES COMPILE_FLAGS "-O0 -g")
 
@@ -8,6 +6,7 @@ set(target CnoidBody)
 set(sources
   Body.cpp
   Link.cpp
+  ExtraJoint.cpp
   LinkTraverse.cpp
   LinkPath.cpp
   JointTraverse.cpp
@@ -18,6 +17,7 @@ set(sources
   BodyHandlerManager.cpp
   CustomJointPathBase.cpp
   JointSpaceConfigurationHandler.cpp
+  LinkedJointHandler.cpp
   BodyCustomizerInterface.cpp
   Material.cpp
   ContactMaterial.cpp
@@ -28,6 +28,7 @@ set(sources
   BodyLoader.cpp
   StdBodyLoader.cpp
   StdBodyWriter.cpp
+  ROSPackageSchemeHandler.cpp
   Device.cpp
   HolderDevice.cpp
   AttachmentDevice.cpp
@@ -36,6 +37,7 @@ set(sources
   ForceSensor.cpp
   RateGyroSensor.cpp
   AccelerationSensor.cpp
+  Imu.cpp
   BasicSensorSimulationHelper.cpp
   VisionSensor.cpp
   Camera.cpp
@@ -46,20 +48,21 @@ set(sources
   SpotLight.cpp
   MarkerDevice.cpp
   MultiDeviceStateSeq.cpp
-  ExtraBodyStateAccessor.cpp
   SceneCollision.cpp
   InverseKinematics.cpp
   CompositeIK.cpp
   PinDragIK.cpp
   BodyKinematicsKit.cpp
-  #KinematicBodyPart.cpp
   KinematicBodySet.cpp
   LeggedBodyHelper.cpp
+  BodyCollisionLinkFilter.cpp
   BodyCollisionDetector.cpp
   BodyCollisionDetectorUtil.cpp
   BodyMotion.cpp
+  BodyPositionSeq.cpp
   BodyMotionPoseProvider.cpp
   BodyState.cpp
+  ExtraBodyStateAccessor.cpp
   ZMPSeq.cpp
   ForwardDynamics.cpp
   ForwardDynamicsABM.cpp
@@ -86,6 +89,7 @@ set(headers
   CustomJointPathHandler.h
   CustomJointPathBase.h
   JointSpaceConfigurationHandler.h
+  LinkedJointHandler.h
   BodyCustomizerInterface.h
   VRMLBody.h
   AbstractBodyLoader.h
@@ -93,8 +97,10 @@ set(headers
   BodyLoader.h
   StdBodyLoader.h
   StdBodyWriter.h
+  StdBodyFileUtil.h
   ZMPSeq.h
   Link.h
+  ExtraJoint.h
   LinkTraverse.h
   LinkPath.h
   JointTraverse.h
@@ -103,6 +109,7 @@ set(headers
   Material.h
   ContactMaterial.h
   MaterialTable.h
+  BodyCollisionLinkFilter.h
   BodyCollisionDetector.h
   BodyCollisionDetectorUtil.h
   MultiDeviceStateSeq.h
@@ -115,6 +122,7 @@ set(headers
   ForceSensor.h
   RateGyroSensor.h
   AccelerationSensor.h
+  Imu.h
   BasicSensorSimulationHelper.h
   VisionSensor.h
   Camera.h
@@ -132,7 +140,6 @@ set(headers
   CompositeBodyIK.h
   PinDragIK.h
   BodyKinematicsKit.h
-  #KinematicBodyPart.h
   KinematicBodySet.h
   LeggedBodyHelper.h
   PenetrationBlocker.h
@@ -147,12 +154,13 @@ set(headers
   ConstraintForceSolver.h
   PoseProvider.h
   BodyMotion.h
+  BodyPositionSeq.h
   BodyMotionPoseProvider.h
   PoseProviderToBodyMotionConverter.h
   BodyMotionUtil.h
   BodyState.h
+  ExtraBodyStateAccessor.h
   CollisionLinkPair.h
-  ExtraJoint.h
   ControllerIO.h
   SimpleController.h
   exportdecl.h
@@ -161,11 +169,11 @@ set(headers
 choreonoid_make_gettext_mo_files(${target} mofiles)
 choreonoid_add_library(${target} SHARED ${sources} ${mofiles} HEADERS ${headers})
 
+set(libraries PUBLIC CnoidUtil CnoidAISTCollisionDetector)
 if(UNIX)
-  target_link_libraries(${target} CnoidUtil CnoidAISTCollisionDetector dl)
-elseif(MSVC)
-  target_link_libraries(${target} CnoidUtil CnoidAISTCollisionDetector)
+  set(libraries ${libraries} PRIVATE dl)
 endif()
+target_link_libraries(${target} ${libraries})
 
 include(ChoreonoidBodyBuildFunctions.cmake)
 if(CHOREONOID_INSTALL_SDK)
@@ -180,13 +188,6 @@ if(BODY_CUSTOMIZERS)
     choreonoid_add_body_customizer(${customizer} ${src})
   endforeach()
 endif()
-
-# TODO: Remove the following code. It is written in CHOREONID_BODY_ADD_SIMPLE_CONTROLLER
-#file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/${CNOID_PLUGIN_SUBDIR}/simplecontroller)
-#install(
-#  DIRECTORY ${PROJECT_BINARY_DIR}/${CNOID_PLUGIN_SUBDIR}/simplecontroller
-#  DESTINATION ${CNOID_PLUGIN_SUBDIR}/simplecontroller
-#  FILES_MATCHING PATTERN "*" EXCLUDE)
 
 if(ENABLE_PYTHON)
   add_subdirectory(pybind11)

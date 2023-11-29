@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Choreonoid\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2022-07-26 19:12+0900\n"
+"POT-Creation-Date: 2023-11-21 22:03+0900\n"
 "PO-Revision-Date: 2021-10-25 12:00+0900\n"
 "Language: ja\n"
 "MIME-Version: 1.0\n"
@@ -138,6 +138,106 @@ msgstr "ラジアン"
 msgid "Angle value precision (number of decimals)"
 msgstr "角度値精度（小数点以下桁数）"
 
+msgid "Distance Measurement"
+msgstr "距離測定"
+
+msgid "Object %1"
+msgstr "対象%1"
+
+msgid "Position:"
+msgstr "位置："
+
+msgid "Pick"
+msgstr "ピック"
+
+msgid "Surface"
+msgstr "表面"
+
+msgid "Vertex"
+msgstr "頂点"
+
+msgid "Circle Center"
+msgstr "円中心"
+
+msgid "Shortest Distance"
+msgstr "最短距離"
+
+msgid "Fix one side"
+msgstr "片方を固定"
+
+msgid "Point %1"
+msgstr "点%1"
+
+msgid "Distance"
+msgstr "距離"
+
+msgid "Marker"
+msgstr "マーカ"
+
+msgid "Color"
+msgstr "色"
+
+msgid "Line width"
+msgstr "線幅"
+
+msgid "Overlay"
+msgstr "オーバーレイ"
+
+msgid "Create measurement item"
+msgstr "計測アイテムの作成"
+
+msgid "Name:"
+msgstr "名前"
+
+msgid "&Measure"
+msgstr "測定"
+
+msgid ""
+"The Distance measurement item \"{0}\" has been removed from the project and close the distance "
+"measurement dialog."
+msgstr "距離測定アイテム \"{0}\" はプロジェクトから削除されました．距離測定ダイアログを閉じます．"
+
+msgid "Removing Distance Measurement Item"
+msgstr "距離測定アイテムの削除"
+
+msgid ""
+"The distance measurement item \"{0}\" will be removed from the project. Do you want to continue "
+"this operation?"
+msgstr "距離測定アイテム \"{0}\" はプロジェクトから削除されます．この処理を続けますか？"
+
+msgid "The distance measurement cannot be started since the target items are not specified."
+msgstr "対象アイテムが指定されていないので距離測定を開始できません．"
+
+msgid "Distance Marker Color"
+msgstr "距離マーカの色"
+
+msgid "DistanceMeasurementItem"
+msgstr "距離測定アイテム"
+
+msgid "Configuration"
+msgstr "設定"
+
+msgid "None"
+msgstr "無し"
+
+msgid "Item{0}"
+msgstr "アイテム{0}"
+
+msgid "Item{0} sub entry"
+msgstr "アイテム{0}サブエントリ"
+
+msgid "Active"
+msgstr "アクティブ"
+
+msgid "Shortest distance mode"
+msgstr "最短距離モード"
+
+msgid "Fix one side for shortest distance"
+msgstr "最短距離の一方を固定"
+
+msgid "Fixed side"
+msgstr "固定する側"
+
 msgid "ExtCommandItem"
 msgstr "外部コマンドアイテム"
 
@@ -173,61 +273,6 @@ msgstr "プロジェクトを保存"
 
 msgid "FolderItem"
 msgstr "フォルダアイテム"
-
-msgid "OpenGL {0} is available for the \"{1}\" view.\n"
-msgstr "OpenGL {0} が \"{1}\" ビューで利用可能です．\n"
-
-msgid "Driver profile: {0} {1}."
-msgstr "ドライバプロファイル: {0} {1}."
-
-msgid "Shader \"{}\" is not found."
-msgstr "シェーダ \"{}\" がみつかりません．"
-
-msgid ""
-"Shader compilation of \"{0}\" failed.\n"
-"{1}"
-msgstr ""
-"\"{0}\" のシェーダコンパイルに失敗しました．\n"
-"{1}"
-
-msgid "Shader compilation of \"{}\" failed."
-msgstr "\"{}\" のシェーダコンパイルに失敗しました．"
-
-msgid "Unable to create shader program."
-msgstr "シェーダプログラムを生成できません．"
-
-msgid "Program has not been compiled."
-msgstr "プログラムはコンパイルされていません．"
-
-msgid "Program link failed."
-msgstr "プログラムのリンクに失敗しました．"
-
-msgid "Program is not linked"
-msgstr "プログラムはリンクされていません"
-
-msgid "Program failed to validate"
-msgstr "プログラムの有効化に失敗しました"
-
-msgid "Shader has not been linked."
-msgstr "シェーダがリンクされていません．"
-
-msgid "OpenGL {0}.{1} (GLSL {2}) is available for the \"{3}\" view.\n"
-msgstr "OpenGL {0}.{1} (GLSL {2}) が \"{3}\" ビューで利用可能です．\n"
-
-msgid "Driver profile: {0} {1} {2}.\n"
-msgstr "ドライバプロファイル: {0} {1} {2}.\n"
-
-msgid "Shadow casting is disabled according to the value of CNOID_ENABLE_GLSL_SHADOW.\n"
-msgstr "影の描画はCNOID_ENABLE_GLSL_SHADOWの値に従い無効化されました．\n"
-
-msgid "Shadow casting is enabled according to the value of CNOID_ENABLE_GLSL_SHADOW.\n"
-msgstr "影の描画はCNOID_ENABLE_GLSL_SHADOWの値に従い有効化されました．\n"
-
-msgid "Shadow casting is disabled for this GPU due to some problems.\n"
-msgstr "影の描画はこのGPUに対しては問題があるため無効化されます．\n"
-
-msgid "Framebuffer is not complete.\n"
-msgstr "フレームバッファが不完全です．\n"
 
 msgid "The file format of \"{}\" is not supported.\n"
 msgstr "ファイルフォーマット \"{}\" はサポートされていません．\n"
@@ -267,9 +312,6 @@ msgstr "設定ダイアログの表示"
 
 msgid "Graph Config"
 msgstr "グラフ設定"
-
-msgid "Line width"
-msgstr "線幅"
 
 msgid "y-range, 10^"
 msgstr "y軸範囲, 10^"
@@ -364,7 +406,7 @@ msgstr "添付"
 msgid "Unique"
 msgstr "固有"
 
-msgid "Temporal"
+msgid "Temporary"
 msgstr "一時的"
 
 msgid "Builtin"
@@ -372,6 +414,9 @@ msgstr "組込"
 
 msgid "Reloadable"
 msgstr "再読込可"
+
+msgid "No undo"
+msgstr "Undo対象外"
 
 msgid "Attribute"
 msgstr "属性"
@@ -485,9 +530,6 @@ msgstr "生成(&C)"
 
 msgid "&Cancel"
 msgstr "キャンセル(&C)"
-
-msgid "Name:"
-msgstr "名前"
 
 msgid "There is no file I/O processor registered for the \"{0}\" type."
 msgstr "アイテム型 \"{0}\" に対してI/Oプロセッサが登録されていません．"
@@ -731,9 +773,6 @@ msgstr "照度"
 
 msgid "Ambient intensity"
 msgstr "環境照度"
-
-msgid "Color"
-msgstr "色"
 
 msgid "Constant attenuation"
 msgstr "定数減衰"
@@ -1084,8 +1123,8 @@ msgstr "ディレクトリの選択"
 msgid "MultiPointSetItem"
 msgstr "複数ポイントセットアイテム"
 
-msgid "Multi Point Sets"
-msgstr "複数ポイントセット"
+msgid "Multi Point Clouds"
+msgstr "複数ポイントクラウド"
 
 msgid "All"
 msgstr "全て"
@@ -1158,6 +1197,9 @@ msgstr "フレームあたり要素数"
 
 msgid "Plain Format of a Multi Value Sequence"
 msgstr "複数値時系列のプレインフォーマット"
+
+msgid "MultiVector3SeqItem"
+msgstr "複数3次元ベクトル時系列アイテム"
 
 msgid "Input file \"{}\" was not processed."
 msgstr "入力ファイル  \"{}\" は処理されませんでした．"
@@ -1233,17 +1275,20 @@ msgstr "プラグインの読み込み"
 msgid "Plugin files (*.%1)"
 msgstr "プラグインファイル (*.%1)"
 
+msgid "Point Cloud"
+msgstr "ポイントクラウド"
+
 msgid "PointSetItem"
 msgstr "ポイントセットアイテム"
-
-msgid "Point Cloud (PCD)"
-msgstr "ポイントクラウド(PCD)"
 
 msgid "Editable"
 msgstr "編集可能"
 
 msgid "Num points"
 msgstr "ポイント数"
+
+msgid "Offset position of {0}"
+msgstr "{0}のオフセット位置"
 
 msgid "PositionTagGroupItem"
 msgstr "ポジションタググループアイテム"
@@ -1388,18 +1433,84 @@ msgid "Project files (*.cnoid)"
 msgstr "プロジェクトファイル (*.cnoid)"
 
 msgid ""
-"Current project has not been saved yet. Do you want to save it as a project file before loading a "
-"new project?"
+"The current project has not been saved yet. Do you want to save it as a project file before "
+"loading a new project?"
 msgstr "現在のプロジェクトは保存されていません．新しいプロジェクトを読み込む前に保存しますか？"
+
+msgid ""
+"The current project has not been saved yet. Do you want to save it as a project file before "
+"closing the project?"
+msgstr "現在のプロジェクトは保存されていません．プロジェクトを閉じる前に保存しますか？"
 
 msgid "Project \"%1\" has been updated. Do you want to save it before loading a new project?"
 msgstr "プロジェクト \"%1\" は更新されています．新しいプロジェクトを読み込む前に保存しますか？"
+
+msgid "Project \"%1\" has been updated. Do you want to save it before closing the project?"
+msgstr "プロジェクト \"%1\" は更新されています．プロジェクトを閉じる前に保存しますか？"
 
 msgid "Save a project"
 msgstr "プロジェクトの保存"
 
 msgid "Save temporary items"
 msgstr "一時的アイテムを保存"
+
+msgid "Directory \"{0}\" for packing a project already exists and cannot be removed: {1}."
+msgstr "プロジェクトのパッキング用のディレクトリ \"{0}\" が既に存在していて削除できません： {1}．"
+
+msgid "File system error in packing a project: {0}"
+msgstr "プロジェクトをパッキング中のファイルシステムエラー： {0}"
+
+msgid "Directory \"{0}\" for packing a project cannot be created: {1}."
+msgstr "プロジェクトのパッキング用のディレクトリ \"{0}\" を作成できません： {1}．"
+
+msgid "Directory \"{0}\" for \"{1}\" cannot be created in \"{2}\": {3}."
+msgstr "\"{1}\" 用のディレクトリ \"{0}\" を \"{2}\" に作成できません： {3}．"
+
+msgid "File \"{0}\" cannot be copied into the directory \"{1}\" for packing: {2}."
+msgstr "ファイル \"{0}\" をパッキング用ディレクトリ \"{1}\" にコピーできません： {2}．"
+
+msgid "The project for packing cannot be saved as project file \"{0}\"."
+msgstr "パッキングするプロジェクトをプロジェクトファイル \"{0}\" として保存できません．"
+
+msgid ""
+"A relative path \"{0}\" is given to the project packer as a file path to which {1} depends but it "
+"must be an absolute path."
+msgstr ""
+"{1}が依存するファイルのパスとして相対パス \"{0}\" がプロジェクトパッカーに与えられましたが、これは"
+"絶対パスである必要があります．"
+
+msgid "The file path \"{0}\" for {1} cannot be relocated to be a file path in the project pack."
+msgstr "{1}のファイルパス \"{0}\" をプロジェクトパック内のファイルパスに再配置できません．"
+
+msgid "The project pack file \"{0}\" already exists and cannot be removed: {1}."
+msgstr "プロジェクトパックファイル \"{0}\" が既に存在していて、削除もできません： {1}．"
+
+msgid "Failed to create the project pack file \"{0}\": {1}"
+msgstr "プロジェクトパックファイル \"{0}\" を作成することができません： {1}"
+
+msgid "Failed to create the project pack file \"{0}\"."
+msgstr "プロジェクトパックファイル \"{0}\" を作成することができません．}"
+
+msgid "Failed to add directory \"{0}\" to the project pack: {1}"
+msgstr "プロジェクトパックにディレクトリ \"{0}\" を追加することができません： {1}"
+
+msgid "Failed to add file \"{0}\" to the project pack: {1}"
+msgstr "プロジェクトパックにファイル \"{0}\" を追加することができません： {1}"
+
+msgid "Failed to open the project pack file \"{0}\": {1}"
+msgstr "プロジェクトパックファイル \"{0}\" を開くことができません： {1}"
+
+msgid "Entry {0} in \"{1}\" cannot be extracted."
+msgstr "\"{1}\" 内のエントリ{0}を展開できません．"
+
+msgid "Directory \"{0}\" in the project pack \"{1}\" cannot be created: {2}."
+msgstr "プロジェクトパック \"{1}\" のディレクトリ \"{0}\" を作成できません： {2}．"
+
+msgid "File \"{0}\" in the project pack \"{1}\" cannot be extracted."
+msgstr "プロジェクトパック \"{1}\" のファイル \"{0}\" を展開できません．"
+
+msgid "The project pack file \"{0}\" does not include a project file."
+msgstr "プロジェクトパック \"{0}\" はプロジェクトファイルを含んでいません．"
 
 msgid "ReferencedObjectSeqItem"
 msgstr "参照オブジェクト時系列アイテム"
@@ -1433,6 +1544,12 @@ msgstr " 法線: {}\n"
 
 msgid " Triangles: {}"
 msgstr " トライアングル: {}"
+
+msgid "The project must be saved to detect the scene files for {0}."
+msgstr "{0}のシーンファイルを検出するためにプロジェクトが保存されている必要があります．"
+
+msgid "The file \"{0}\" on which {1} depends is not relocatable and will be lost in the archive."
+msgstr "{1}が依存しているファイル \"{0}\" は再配置できないためアーカイブ内で失われます．"
 
 msgid "RootItem"
 msgstr "ルートアイテム"

@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_BODY_H
 #define CNOID_BODY_BODY_H
 
@@ -10,6 +5,7 @@
 #include "ExtraJoint.h"
 #include "DeviceList.h"
 #include <cnoid/ClonableReferenced>
+#include <cnoid/Signal>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -107,6 +103,7 @@ public:
 
     Link* findUniqueEndLink() const;
     Link* lastSerialLink() const;
+    Link* guessMainEndLink() const;
 
     /**
        The number of the links that are actual joints.
@@ -264,10 +261,24 @@ public:
     void clearExternalForces();
 
     int numExtraJoints() const { return static_cast<int>(extraJoints_.size()); }
-    ExtraJoint& extraJoint(int index) { return extraJoints_[index]; }
-    const ExtraJoint& extraJoint(int index) const {  return extraJoints_[index]; }
-    void addExtraJoint(const ExtraJoint& extraJoint) { extraJoints_.push_back(extraJoint); }
+    ExtraJoint* extraJoint(int index) { return extraJoints_[index]; }
+    const ExtraJoint* extraJoint(int index) const {  return extraJoints_[index]; }
+    void addExtraJoint(ExtraJoint* extraJoint) { extraJoints_.push_back(extraJoint); }
     void clearExtraJoints() { extraJoints_.clear(); }
+
+    bool existence() const { return existence_; }
+    void setExistence(bool on);
+    SignalProxy<void(bool on)> sigExistenceChanged();
+
+    int numMultiplexBodies() const { return !nextMultiplexBody_ ? 1 : getNumMultiplexBodies(); }
+    Body* nextMultiplexBody() { return nextMultiplexBody_; }
+    Body* getOrCreateNextMultiplexBody() {
+        return nextMultiplexBody_ ? nextMultiplexBody_.get() : addMultiplexBody();
+    }
+    Body* addMultiplexBody();
+    bool clearMultiplexBodies(bool doClearCache = false){
+        return !nextMultiplexBody_ ? false : doClearMultiplexBodies(doClearCache);
+    }
 
     const Mapping* info() const;
     Mapping* info();
@@ -346,11 +357,13 @@ private:
     LinkPtr rootLink_;
     LinkPtr parentBodyLink_;
     bool isStaticModel_;
+    bool existence_;
     std::vector<LinkPtr> jointIdToLinkArray;
     int numActualJoints;
     DeviceList<> devices_;
-    std::vector<ExtraJoint> extraJoints_;
+    std::vector<ExtraJointPtr> extraJoints_;
     std::function<double()> currentTimeFunction;
+    BodyPtr nextMultiplexBody_;
 
     class Impl;
     Impl* impl;
@@ -358,6 +371,8 @@ private:
     Link* cloneLinkTree(const Link* orgLink, CloneMap* cloneMap);
     Link* createEmptyJoint(int jointId);
     Device* findDevice_(const std::string& name) const;
+    int getNumMultiplexBodies() const;
+    bool doClearMultiplexBodies(bool doClearCache);
     Referenced* findCacheSub(const std::string& name);
     const Referenced* findCacheSub(const std::string& name) const;
     void insertCache(const std::string& name, Referenced* cache);

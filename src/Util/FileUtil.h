@@ -1,12 +1,8 @@
-/*!
-  @file
-  @author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_UTIL_FILE_UTIL_H
 #define CNOID_UTIL_FILE_UTIL_H
 
 #include <cnoid/stdx/filesystem>
+#include <cnoid/stdx/optional>
 #include <string>
 #include "exportdecl.h"
 
@@ -27,16 +23,33 @@ CNOID_EXPORT stdx::filesystem::path getCompactPath(const stdx::filesystem::path&
 CNOID_EXPORT void makePathCompact(stdx::filesystem::path& io_path);
 
 
+CNOID_EXPORT int findPathInDirectory(
+    const stdx::filesystem::path& directory,
+    const stdx::filesystem::path& path,
+    stdx::filesystem::path& out_relativePath);
+
+[[deprecated("Use findPathInDirectory.")]]
 CNOID_EXPORT int findSubDirectory(
     const stdx::filesystem::path& directory,
     const stdx::filesystem::path& path,
     stdx::filesystem::path& out_subdirectory);
 
+/**
+   \return Empty optional value is returned if a relative path cannot be obtained for the input path set, empty value.
+   Otherwise, the optional value containing the relative path is returned.
+*/
+CNOID_EXPORT stdx::optional<stdx::filesystem::path> getRelativePath(
+    const stdx::filesystem::path& path, const stdx::filesystem::path& base);
+
+CNOID_EXPORT bool checkIfSubFilePath(const stdx::filesystem::path& path, const stdx::filesystem::path& base);
+
+[[deprecated("Use getRelativePath.")]]
 CNOID_EXPORT bool findRelativePath(
     const stdx::filesystem::path& from,
     const stdx::filesystem::path& to,
     stdx::filesystem::path& out_relativePath);
 
+CNOID_EXPORT stdx::filesystem::path getNativeUniformPath(const stdx::filesystem::path& path);
 
 /**
    This function returs the extension without dot.

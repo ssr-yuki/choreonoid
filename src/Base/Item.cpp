@@ -1,8 +1,3 @@
-/**
-   @file
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "Item.h"
 #include "ItemAddon.h"
 #include "RootItem.h"
@@ -13,7 +8,6 @@
 #include "PutPropertyFunction.h"
 #include "LazyCaller.h"
 #include "MessageView.h"
-#include "UnifiedEditHistory.h"
 #include "EditRecord.h"
 #include <cnoid/CloneMap>
 #include <cnoid/ValueTree>
@@ -53,16 +47,7 @@ bool isAnyItemInSubTreesBeingAddedOrRemovedSelected = false;
 std::map<ItemPtr, ItemPtr> replacementToOriginalItemMap;
 std::map<ItemPtr, ItemPtr> originalToReplacementItemMap;
 
-UnifiedEditHistory* unifiedEditHistory = nullptr;
-
-
-LazyCaller clearItemReplacementMapsLater(
-    [](){
-        replacementToOriginalItemMap.clear();
-        originalToReplacementItemMap.clear();
-    },
-    LazyCaller::MinimumPriority);
-        
+LazyCaller clearItemReplacementMapsLater;
 
 bool checkIfAnyItemInSubTreeSelected(Item* item)
 {
@@ -70,7 +55,9 @@ bool checkIfAnyItemInSubTreeSelected(Item* item)
         return true;
     }
     for(auto child = item->childItem(); child; child = child->nextItem()){
-        return checkIfAnyItemInSubTreeSelected(child);
+        if(checkIfAnyItemInSubTreeSelected(child)){
+            return true;
+        }
     }
     return false;
 }
@@ -106,7 +93,7 @@ public:
     MappingPtr fileOptions;
     std::time_t fileModificationTime;
     bool isConsistentWithFile;
-    bool isConsistentWithArchive;
+    bool isConsistentWithProjectArchive;
 
     Impl(Item* self);
     Impl(Item* self, const Impl& org);
@@ -146,6 +133,7 @@ public:
     void traverse(Item* item, const std::function<bool(Item*)>& callback);
     void removeAddon(ItemAddon* addon, bool isMoving);
     ItemAddon* createAddon(const std::type_info& type);
+    static void clearItemReplacementMaps();
 };
 
 }
@@ -179,13 +167,14 @@ Item::Item(const Item& org)
 
 
 Item::Impl::Impl(Item* self, const Impl& org)
-    : self(self)
+    : self(self),
+      displayNameModifier(org.displayNameModifier)
 {
     initialize();
     
     self->attributes_ =
         org.self->attributes_ &
-        (FileImmutable | Reloadable | ExcludedFromUnifiedEditHistory);
+        (FileImmutable | Reloadable | ExcludedFromUnifiedEditHistory | IncludedInUnifiedEditHistory);
 
     if(self->attributes_ & FileImmutable){
         filePath = org.filePath;
@@ -212,7 +201,7 @@ void Item::Impl::initialize()
 
     fileModificationTime = 0;
     isConsistentWithFile = false;
-    isConsistentWithArchive = false;
+    isConsistentWithProjectArchive = false;
 }
 
 
@@ -267,7 +256,7 @@ bool Item::assign(const Item* srcItem)
     bool assigned = doAssign(srcItem);
 
     if(assigned){
-        impl->isConsistentWithArchive = false;
+        impl->isConsistentWithProjectArchive = false;
         
         impl->assignAddons(srcItem);
  
@@ -347,8 +336,8 @@ Item* Item::cloneSubTree(CloneMap& cloneMap) const
 Item* Item::Impl::cloneSubTreeIter(Item* clone, Item* parentClone, CloneMap& cloneMap) const
 {
     if(!clone){
-        // Skip cloning a temporal item other than the top item
-        if(!parentClone || !self->isTemporal()){
+        // Skip cloning a temporary item other than the top item
+        if(!parentClone || !self->isTemporary()){
             clone = cloneMap.getClone(self);
         }
     }
@@ -390,7 +379,7 @@ bool Item::setName(const std::string& name)
     if(name != name_){
         string oldName(name_);
         name_ = name;
-        impl->isConsistentWithArchive = false;
+        impl->isConsistentWithProjectArchive = false;
         impl->notifyNameChange(oldName);
     }
     return true;
@@ -434,12 +423,12 @@ void Item::notifyNameChange()
 }
 
 
-void Item::setTemporal(bool on)
+void Item::setTemporary(bool on)
 {
     if(on){
-        setAttribute(Temporal);
+        setAttribute(Temporary);
     } else {
-        unsetAttribute(Temporal);
+        unsetAttribute(Temporary);
     }
 }
 
@@ -537,7 +526,7 @@ void Item::setChecked(int checkId, bool on)
     
     if(on != current){
 
-        impl->isConsistentWithArchive = false;
+        impl->isConsistentWithProjectArchive = false;
 
         if(!root){
             root = findRootItem();
@@ -737,9 +726,9 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
         isAnyItemInSubTreesBeingAddedOrRemovedSelected = true;
     }
     
-    if(self->isTemporal()){
+    if(self->isTemporary()){
         if(isManualOperation && !item->isSubItem()){
-            self->setTemporal(false);
+            self->setTemporary(false);
         }
     }
 
@@ -783,8 +772,7 @@ bool Item::Impl::doInsertChildItem(ItemPtr item, Item* newNextItem, bool isManua
             rootItem->notifyEventOnSubTreeMoved(item, orgSubTreeItems);
 
         } else {
-            bool doEmitSigSubTreeAdded = recursiveTreeChangeCounter == 1;
-            rootItem->notifyEventOnSubTreeAdded(item, orgSubTreeItems, doEmitSigSubTreeAdded);
+            rootItem->notifyEventOnSubTreeAdded(item, orgSubTreeItems);
 
             for(auto& subTreeItem : orgSubTreeItems){
                 if(subTreeItem->isSelected()){
@@ -1014,8 +1002,8 @@ void Item::onRemovedFromParent(Item* /* parentItem */, bool /* isParentBeingDele
 
 void Item::clearChildren()
 {
-    while(childItem()){
-        childItem()->removeFromParentItem();
+    while(lastChild_){
+        lastChild_->removeFromParentItem();
     }
 }
 
@@ -1235,20 +1223,15 @@ SignalProxy<void(bool on)> Item::sigCheckToggled(int checkId)
 }
 
 
-Item* Item::find(const std::string& path, const std::function<bool(Item* item)>& pred)
+Item* Item::find(const std::function<bool(Item* item)>& pred)
 {
-    return RootItem::instance()->findItem(path, pred, true);
+    return RootItem::instance()->findItem(pred, true);
 }
 
 
-Item* Item::findItem
-(const std::string& path, std::function<bool(Item* item)> pred, bool isRecursive) const
+Item* Item::findItem(std::function<bool(Item* item)> pred, bool isRecursive) const
 {
-    ItemPath ipath(path);
-    if(ipath.begin() == ipath.end()){
-        return impl->findItem(pred, isRecursive);
-    }
-    return impl->findItem(ipath.begin(), ipath.end(), pred, isRecursive);
+    return impl->findItem(pred, isRecursive);
 }
 
 
@@ -1268,6 +1251,19 @@ Item* Item::Impl::findItem(const std::function<bool(Item* item)>& pred, bool isR
         }
     }
     return nullptr;
+}
+
+
+Item* Item::find(const std::string& path, const std::function<bool(Item* item)>& pred)
+{
+    return RootItem::instance()->findItem(path, pred, true);
+}
+
+
+Item* Item::findItem(const std::string& path, std::function<bool(Item* item)> pred, bool isRecursive) const
+{
+    ItemPath ipath(path);
+    return impl->findItem(ipath.begin(), ipath.end(), pred, isRecursive);
 }
 
 
@@ -1394,7 +1390,7 @@ void Item::Impl::traverse(Item* item, const std::function<bool(Item*)>& callback
 
 void Item::notifyUpdate()
 {
-    impl->isConsistentWithArchive = false;
+    impl->isConsistentWithProjectArchive = false;
     impl->sigUpdated();
 }
 
@@ -1612,12 +1608,16 @@ bool Item::isConsistentWithFile() const
 void Item::setConsistentWithFile(bool isConsistent)
 {
     impl->isConsistentWithFile = isConsistent;
+    if(!isConsistent){
+        impl->isConsistentWithProjectArchive = false;
+    }
 }
 
 
 void Item::suggestFileUpdate()
 {
     impl->isConsistentWithFile = false;
+    impl->isConsistentWithProjectArchive = false;
 }
 
 
@@ -1630,6 +1630,7 @@ void Item::updateFileInformation(const std::string& filename, const std::string&
     } else {
         impl->fileModificationTime = 0;
         impl->isConsistentWithFile = false;
+        impl->isConsistentWithProjectArchive = false;
     }        
     impl->filePath = filename;
     impl->fileFormat = format;
@@ -1641,6 +1642,9 @@ void Item::updateFileInformation(const std::string& filename, const std::string&
 
 void Item::clearFileInformation()
 {
+    if(!impl->filePath.empty() || !impl->fileFormat.empty()){
+        impl->isConsistentWithProjectArchive = false;
+    }
     impl->filePath.clear();
     impl->fileFormat.clear();
     impl->isConsistentWithFile = true;
@@ -1684,7 +1688,7 @@ bool Item::replace(Item* originalItem)
             for(int i=0; i < nc; ++i){
                 setChecked(i, originalItem->isChecked(i));
             }
-            // move children to the reload item
+            // move children to the new item
             ItemPtr child = originalItem->childItem();
             while(child){
                 ItemPtr nextChild = child->nextItem();
@@ -1697,12 +1701,24 @@ bool Item::replace(Item* originalItem)
             originalItem->removeFromParentItem();
             setSelected(isSelected);
             replaced = true;
+            impl->isConsistentWithProjectArchive = false;
         }
 
+        if(!clearItemReplacementMapsLater.hasFunction()){
+            clearItemReplacementMapsLater.setFunction(Impl::clearItemReplacementMaps);
+            clearItemReplacementMapsLater.setPriority(LazyCaller::MinimumPriority);
+        }
         clearItemReplacementMapsLater();
     }
 
     return replaced;
+}
+
+
+void Item::Impl::clearItemReplacementMaps()
+{
+    replacementToOriginalItemMap.clear();
+    originalToReplacementItemMap.clear();
 }
 
 
@@ -1774,9 +1790,9 @@ void Item::putProperties(PutPropertyFunction& putProperty)
             if(!attributes.empty()) attributes += ", ";
             attributes += _("Unique");
         }
-        if(isTemporal()){
+        if(isTemporary()){
             if(!attributes.empty())  attributes += ", ";
-            attributes += _("Temporal");
+            attributes += _("Temporary");
         }
         if(hasAttribute(Builtin)){
             if(!attributes.empty())  attributes += ", ";
@@ -1786,6 +1802,11 @@ void Item::putProperties(PutPropertyFunction& putProperty)
             if(!attributes.empty())  attributes += ", ";
             attributes += _("Reloadable");
         }
+    }
+    if(hasAttribute(ExcludedFromUnifiedEditHistory) ||
+       (hasAttribute(SubItem) && !hasAttribute(IncludedInUnifiedEditHistory))){
+        if(!attributes.empty())  attributes += ", ";
+        attributes += _("No undo");
     }
     if(!attributes.empty()){
         if(attributes.size() == 1){
@@ -1806,20 +1827,6 @@ void Item::doPutProperties(PutPropertyFunction& putProperty)
 }
 
 
-void Item::setUnifiedEditHistory(UnifiedEditHistory* history)
-{
-    unifiedEditHistory = history;
-}
-
-
-void Item::addEditRecordToUnifiedEditHistory(EditRecord* record)
-{
-    if(!hasAttribute(ExcludedFromUnifiedEditHistory)){
-        unifiedEditHistory->addRecord(record);
-    }
-}
-
-
 bool Item::store(Archive& archive)
 {
     return true;
@@ -1832,16 +1839,16 @@ bool Item::restore(const Archive& archive)
 }
 
 
-void Item::setConsistentWithArchive(bool isConsistent)
+void Item::setConsistentWithProjectArchive(bool isConsistent)
 {
-    impl->isConsistentWithArchive = isConsistent;
+    impl->isConsistentWithProjectArchive = isConsistent;
 }
 
 
-bool Item::checkConsistencyWithArchive()
+bool Item::isConsistentWithProjectArchive() const
 {
-    if(hasAttribute(SubItem) || hasAttribute(Temporal)){
+    if(hasAttribute(SubItem) || hasAttribute(Temporary)){
         return true;
     }
-    return impl->isConsistentWithArchive;
+    return impl->isConsistentWithProjectArchive;
 }

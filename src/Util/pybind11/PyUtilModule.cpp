@@ -1,7 +1,3 @@
-/*!
-  @author Shizuko Hattori
-*/
-
 #include "PyUtil.h"
 #include "../ExecutablePath.h"
 #include "../FloatingNumberString.h"
@@ -12,10 +8,12 @@ namespace py = pybind11;
 namespace cnoid {
 
 void exportPyReferenced(py::module& m);
+void exportPyMessageOut(py::module& m);
 void exportPySignalTypes(py::module& m);
 void exportPyValueTree(py::module& m);
 void exportPyEigenTypes(py::module& m);
 void exportPyEigenArchive(py::module& m);
+void exportPyFilePathVariableProcessor(py::module& m);
 void exportPySeqTypes(py::module& m);
 void exportPySceneGraph(py::module& m);
 void exportPySceneDrawables(py::module& m);
@@ -31,10 +29,12 @@ PYBIND11_MODULE(Util, m)
     m.doc() = "Choreonoid Util module";
 
     exportPyReferenced(m);
+    exportPyMessageOut(m);
     exportPySignalTypes(m);
     exportPyValueTree(m);
     exportPyEigenTypes(m);
     exportPyEigenArchive(m);
+    exportPyFilePathVariableProcessor(m);
     exportPySeqTypes(m);
     exportPySceneGraph(m);
     exportPySceneDrawables(m);

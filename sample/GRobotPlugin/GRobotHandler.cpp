@@ -30,7 +30,7 @@ public:
     int modelType;
     Geometry geom;
 
-    virtual BodyHandler* clone() override { return new GRobotHandler(*this); }
+    virtual BodyHandler* clone() override;
     virtual bool initialize(Body* body, std::ostream& os) override;
     virtual std::shared_ptr<JointPath> getCustomJointPath(Link* baseLink, Link* endLink) override;
 };
@@ -72,7 +72,14 @@ public:
 
 }
 
-bool GRobotHandler::initialize(Body* body, std::ostream& os)
+
+BodyHandler* GRobotHandler::clone()
+{
+    return new GRobotHandler(*this);
+}
+
+
+bool GRobotHandler::initialize(Body* body, std::ostream& /* os */)
 {
     if(body->modelName() == "GR001"){
         modelType = GR001;

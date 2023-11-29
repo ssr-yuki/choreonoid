@@ -48,7 +48,7 @@ public:
     int currentPosition;
     size_t maxHistorySize;
     EditRecordGroupPtr currentGroup;
-    bool isProjectBeingLoaded;
+    bool isDisabled;
     vector<EditRecordPtr> newRecordBuffer;
     LazyCaller flushNewRecordBufferLater;
     Signal<void()> sigHistoryUpdated;
@@ -91,7 +91,6 @@ UnifiedEditHistory* UnifiedEditHistory::instance()
 UnifiedEditHistory::UnifiedEditHistory(ExtensionManager* ext)
 {
     impl = new Impl(ext);
-    Item::setUnifiedEditHistory(this);
 }
 
 
@@ -99,7 +98,7 @@ UnifiedEditHistory::Impl::Impl(ExtensionManager* ext)
     : flushNewRecordBufferLater([this](){ flushNewRecordBuffer(); }, LazyCaller::LowPriority)
 {
     currentPosition = 0;
-    maxHistorySize = 100;
+    maxHistorySize = 10;
 
     mv = MessageView::instance();
 
@@ -110,17 +109,17 @@ UnifiedEditHistory::Impl::Impl(ExtensionManager* ext)
     pm->sigProjectAboutToBeLoaded().connect(
         [&](int recursiveLevel){
             if(recursiveLevel == 0){
-                isProjectBeingLoaded = true;
+                isDisabled = true;
             }
         });
     pm->sigProjectLoaded().connect(
         [&](int recursiveLevel){
             if(recursiveLevel == 0){
-                isProjectBeingLoaded = false;
+                isDisabled = false;
             }
         });
     
-    isProjectBeingLoaded = false;
+    isDisabled = false;
 }
 
 
@@ -158,7 +157,15 @@ void UnifiedEditHistory::clear()
 
 void UnifiedEditHistory::Impl::clear()
 {
+    newRecordBuffer.clear();
     removeRecordsAfter(0);
+}
+
+
+void UnifiedEditHistory::terminateRecording()
+{
+    impl->isDisabled = true;
+    impl->clear();
 }
 
 
@@ -183,7 +190,7 @@ void UnifiedEditHistory::Impl::removeRecordsAfter(int index)
 
 void UnifiedEditHistory::addRecord(EditRecordPtr record)
 {
-    if(!impl->isProjectBeingLoaded){
+    if(!impl->isDisabled){
         bool isBlocked = false;
         for(auto& blocker : impl->blockers){
             if(blocker->predicate(record)){
@@ -207,6 +214,12 @@ void UnifiedEditHistory::Impl::addRecord(EditRecord* record)
         newRecordBuffer.push_back(record);
         flushNewRecordBufferLater();
     }
+}
+
+
+void UnifiedEditHistory::flushNewRecordBuffer()
+{
+    impl->flushNewRecordBuffer();
 }
 
 
@@ -260,7 +273,7 @@ void UnifiedEditHistory::Impl::expandHistoryFromLatestToCurrentUndoPosition()
 
 void UnifiedEditHistory::beginEditGroup(const std::string& label, bool isValidForSingleRecord)
 {
-    if(!impl->isProjectBeingLoaded){
+    if(!impl->isDisabled){
         impl->currentGroup = new EditRecordGroup(label, isValidForSingleRecord);
     }
 }
@@ -268,7 +281,7 @@ void UnifiedEditHistory::beginEditGroup(const std::string& label, bool isValidFo
 
 void UnifiedEditHistory::endEditGroup()
 {
-    if(!impl->isProjectBeingLoaded && impl->currentGroup){
+    if(!impl->isDisabled && impl->currentGroup){
         EditRecordGroupPtr group = impl->currentGroup;
         impl->currentGroup.reset();
         if(!group->empty()){

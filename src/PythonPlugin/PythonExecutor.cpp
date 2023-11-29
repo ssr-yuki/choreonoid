@@ -259,9 +259,8 @@ bool PythonExecutor::Impl::exec(std::function<python::object()> execScript, cons
         }
 
         if(!filename.empty()){
-            filesystem::path relative;
-            if(findRelativePath(filesystem::current_path(), filepath, relative)){
-                pythonPlugin->globalNamespace()["__file__"] = toUTF8(relative.string());
+            if(auto relativePath = getRelativePath(filepath, filesystem::current_path())){
+                pythonPlugin->globalNamespace()["__file__"] = toUTF8(relativePath->string());
             }
         }
 
@@ -451,7 +450,8 @@ bool PythonExecutor::Impl::terminateScript()
                    for the handler to check if the termination is requested. By giving the class object,
                    the handler can detect the exception type even in this case.
                 */
-                PyThreadState_SetAsyncExc((long)threadId, pythonPlugin->exitException().ptr());
+                PyThreadState_SetAsyncExc(
+                    reinterpret_cast<uintptr_t>(threadId), pythonPlugin->exitException().ptr());
             }
             if(wait(20)){
                 terminated = true;

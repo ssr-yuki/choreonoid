@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-  
 #include "JointPath.h"
 #include "Jacobian.h"
 #include "Body.h"
@@ -93,8 +88,7 @@ JointPath::JointPath()
 
 
 JointPath::JointPath(Link* base, Link* end)
-    : linkPath_(base, end), 
-      joints_(linkPath_.size())
+    : linkPath_(base, end)
 {
     initialize();
     extractJoints();
@@ -102,11 +96,21 @@ JointPath::JointPath(Link* base, Link* end)
 
 
 JointPath::JointPath(Link* end)
-    : linkPath_(end), 
-      joints_(linkPath_.size())
+    : linkPath_(end)
 {
     initialize();
     extractJoints();
+}
+
+
+bool JointPath::setPath(Link* base, Link* end)
+{
+    if(!linkPath_.setPath(base, end)){
+        return false;
+    }
+    initialize();
+    extractJoints();
+    return true;
 }
 
 
@@ -130,8 +134,8 @@ void JointPath::extractJoints()
         if(linkPath_.isDownward(i)){
             i++;
         }
-        joints_.resize(n); // reserve size n buffer
         joints_.clear();
+        joints_.reserve(n); // reserve size n buffer
         int m = n - 1;
         while(i < m){
             Link* link = linkPath_[i];
@@ -189,7 +193,7 @@ void JointPath::calcJacobian(Eigen::MatrixXd& out_J) const
 			
                 switch(link->jointType()){
 				
-                case Link::REVOLUTE_JOINT:
+                case Link::RevoluteJoint:
                 {
                     Vector3 omega = link->R() * link->a();
                     const Vector3 arm = targetLink->p() - link->p();
@@ -200,7 +204,7 @@ void JointPath::calcJacobian(Eigen::MatrixXd& out_J) const
                 }
                 break;
 				
-                case Link::PRISMATIC_JOINT:
+                case Link::PrismaticJoint:
                 {
                     Vector3 dp = link->R() * link->d();
                     if(!isJointDownward(i)){
@@ -437,10 +441,11 @@ bool JointPath::calcRemainingPartForwardKinematicsForInverseKinematics()
 {
     if(!remainingLinkTraverse){
         remainingLinkTraverse = make_shared<LinkTraverse>(baseLink(), true, true);
-        for(auto& link : linkPath_){
-            remainingLinkTraverse->remove(link);
+
+        int n = linkPath_.numLinks();
+        for(int i=1; i < n; ++i){ // Exclude the base link
+            remainingLinkTraverse->remove(linkPath_[i]);
         }
-        remainingLinkTraverse->prependRootAdjacentLinkToward(baseLink());
     }
     remainingLinkTraverse->calcForwardKinematics();
     return true;
@@ -560,8 +565,9 @@ public:
 }
 
 
-std::shared_ptr<JointPath> JointPath::getCustomPath(Body* body, Link* baseLink, Link* endLink)
+std::shared_ptr<JointPath> JointPath::getCustomPath(Link* baseLink, Link* endLink)
 {
+    auto body = baseLink->body();
     auto customJointPathHandler = body->findHandler<CustomJointPathHandler>();
     if(customJointPathHandler){
         auto customPath = customJointPathHandler->getCustomJointPath(baseLink, endLink);
@@ -576,4 +582,10 @@ std::shared_ptr<JointPath> JointPath::getCustomPath(Body* body, Link* baseLink, 
     }
 
     return make_shared<JointPath>(baseLink, endLink);
+}
+
+
+std::shared_ptr<JointPath> cnoid::getCustomJointPath(Body* /* body */, Link* baseLink, Link* endLink)
+{
+    return JointPath::getCustomPath(baseLink, endLink);
 }

@@ -1,12 +1,12 @@
 #include "SceneWidgetConfig.h"
 #include "SceneWidget.h"
-#include "GLSceneRenderer.h"
 #include "Buttons.h"
 #include "ButtonGroup.h"
 #include "CheckBox.h"
 #include "SpinBox.h"
 #include "DoubleSpinBox.h"
 #include "Separator.h"
+#include <cnoid/GLSceneRenderer>
 #include <cnoid/ValueTree>
 #include <cnoid/EigenArchive>
 #include <QBoxLayout>
@@ -690,7 +690,14 @@ ConfigWidgetSet::ConfigWidgetSet(SceneWidgetConfig::Impl* config_)
     signalObjects.push_back(lightweightViewChangeCheck);
 
     fpsTestButton = new PushButton(_("FPS Test"), ownerWidget);
-    fpsTestButton->sigClicked().connect(
+
+    /**
+       Use QObject::connect function directly instead of sigClicked so that the click
+       to cancel the FPS test can be processed during QCoreApplication::processEvents
+       called inside the doFpsTest function.
+    */
+    QObject::connect(
+        fpsTestButton, &QPushButton::clicked,
         [this](){
             if(!isDoingFpsTest){
                 isDoingFpsTest = true;

@@ -1,7 +1,3 @@
-/** 
-    \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_CONSTRAINT_FORCE_SOLVER_H
 #define CNOID_BODY_CONSTRAINT_FORCE_SOLVER_H
 
@@ -58,6 +54,7 @@ public:
     [[deprecated("This function does nothing. Set Link::LinkContactState to Link::sensingMode from a controller.")]]
     void enableConstraintForceOutput(bool on);
 
+    void clearBodies();
     void initialize(void);
     void solve();
     void clearExternalForces();
@@ -66,7 +63,7 @@ public:
 
     // experimental functions
     typedef std::function<bool(Link* link1, Link* link2,
-                               const CollisionArray& collisions,
+                               const std::vector<Collision>& collisions,
                                ContactMaterial* contactMaterial)>  CollisionHandler;
     
     void registerCollisionHandler(const std::string& name, CollisionHandler handler);

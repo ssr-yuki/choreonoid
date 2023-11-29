@@ -1,12 +1,10 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "PathVariableEditor.h"
 #include "AppConfig.h"
 #include "MainWindow.h"
 #include "ExtensionManager.h"
 #include "Buttons.h"
+#include <cnoid/FilePathVariableProcessor>
+#include <cnoid/ValueTree>
 #include <cnoid/UTF8>
 #include <cnoid/stdx/filesystem>
 #include <QBoxLayout>
@@ -175,6 +173,8 @@ void PathVariableEditor::writePathVariablesToArchive()
     if(pathVars->empty()){
         AppConfig::archive()->remove("path_variables");
     }
+
+    FilePathVariableProcessor::systemInstance()->restoreUserVariables(pathVars);
 }
 
 

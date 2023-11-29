@@ -104,7 +104,6 @@ public:
     void updateTreeWidgetItems();
     void expandAll(QTreeWidgetItem* twItem);
     ItwItem* findItwItem(Item* item);
-    ItwItem* findOrCreateItwItem(Item* item);
     void addCheckColumn(int checkId);
     void updateCheckColumnIter(QTreeWidgetItem* twItem, int checkId, int column);
     void releaseCheckColumn(int checkId);
@@ -169,7 +168,7 @@ public:
     ScopedConnection itemCheckConnection;
     ScopedConnection displayUpdateConnection;
     bool isExpandedBeforeRemoving;
-    bool isTemporalAttributeDisplay;
+    bool isTemporaryAttributeDisplay;
 
     struct DisplayState {
         QColor foregroundColor;
@@ -230,7 +229,7 @@ ItemTreeWidget::ItwItem::ItwItem(Item* item, ItemTreeWidget::Impl* widgetImpl)
     }
 
     isExpandedBeforeRemoving = false;
-    isTemporalAttributeDisplay = false;
+    isTemporaryAttributeDisplay = false;
 
     widgetImpl->updateItemDisplay(this);
     displayUpdateConnection =
@@ -252,13 +251,13 @@ ItemTreeWidget::ItwItem::~ItwItem()
 void ItemTreeWidget::ItwItem::setData(int column, int role, const QVariant& value)
 {
     if(column == 0){
-        QTreeWidgetItem::setData(column, role, value);
-
-        if(role == Qt::EditRole){
-            if(value.type() == QVariant::String){
-                if(!value.toString().isEmpty()){
-                    item->setName(value.toString().toStdString());
-                }
+        if(role != Qt::EditRole){
+            QTreeWidgetItem::setData(column, role, value);
+        } else {
+            // Prevent setting an empty name
+            if(value.type() == QVariant::String && !value.toString().isEmpty()){
+                QTreeWidgetItem::setData(column, role, value);
+                item->setName(value.toString().toStdString());
             }
         }
     } else if(column >= 1 && role == Qt::CheckStateRole && widgetImpl->isCheckColumnShown){
@@ -796,16 +795,6 @@ ItwItem* ItemTreeWidget::Impl::findItwItem(Item* item)
 }
 
 
-ItwItem* ItemTreeWidget::Impl::findOrCreateItwItem(Item* item)
-{
-    auto itwItem = findItwItem(item);
-    if(!itwItem){
-        itwItem = new ItwItem(item, this);
-    }
-    return itwItem;
-}
-
-
 void ItemTreeWidget::Impl::addCheckColumn(int checkId)
 {
     if(checkIdToColumnMap.find(checkId) != checkIdToColumnMap.end()){
@@ -874,14 +863,14 @@ void ItemTreeWidget::Impl::applyDefaultItemDisplay(Item* item, Display& display)
 {
     auto& itwItem = display.itwItem;
 
-    bool isTemporal = item->isTemporal();
+    bool isTemporary = item->isTemporary();
     while(item->isSubItem()){
         item = item->parentItem();
-        isTemporal = item->isTemporal();
+        isTemporary = item->isTemporary();
     }
     
-    if(isTemporal){
-        if(!itwItem->isTemporalAttributeDisplay){
+    if(isTemporary){
+        if(!itwItem->isTemporaryAttributeDisplay){
             ItwItem::DisplayState state;
             auto fg = display.foreground();
             qreal h, s, v;
@@ -898,11 +887,11 @@ void ItemTreeWidget::Impl::applyDefaultItemDisplay(Item* item, Display& display)
             state.fontItalicState = font.italic();
             font.setItalic(true);
             display.setFont(font);
-            itwItem->isTemporalAttributeDisplay = true;
+            itwItem->isTemporaryAttributeDisplay = true;
             itwItem->orgDisplayState = state;
         }
     } else {
-        if(itwItem->isTemporalAttributeDisplay){
+        if(itwItem->isTemporaryAttributeDisplay){
             auto& state = *itwItem->orgDisplayState;
             auto fg = display.foreground();
             fg.setColor(state.foregroundColor);
@@ -910,7 +899,7 @@ void ItemTreeWidget::Impl::applyDefaultItemDisplay(Item* item, Display& display)
             auto font = display.font();
             font.setItalic(state.fontItalicState);
             display.setFont(font);
-            itwItem->isTemporalAttributeDisplay = false;
+            itwItem->isTemporaryAttributeDisplay = false;
         }
     }
 }
@@ -918,42 +907,49 @@ void ItemTreeWidget::Impl::applyDefaultItemDisplay(Item* item, Display& display)
 
 void ItemTreeWidget::Impl::insertItem(QTreeWidgetItem* parentTwItem, Item* item, bool isTopLevelItemCandidate)
 {
-    if(!findOrCreateLocalRootItem(false)){
-        return;
-    }
+    auto itwItem = findItwItem(item);
 
-    bool isVisible = false;
-
-    if(item->isOwnedBy(localRootItem) || (isRootItemVisible && (item == localRootItem))){
-        visibilityFunction_isTopLevelItemCandidate = isTopLevelItemCandidate;
-        visibilityFunction_result = true;
-        visibilityFunctions.dispatch(item);
-        isVisible = visibilityFunction_result;
-    }
-    
-    if(!isVisible){
-        if(!isTopLevelItemCandidate){
-            parentTwItem = nullptr;
-        }
-    } else {
-        auto itwItem = findOrCreateItwItem(item);
-        bool isFirstNewChildItem = parentTwItem->childCount() == 0;
-        auto nextItwItem = findNextItwItem(item, isTopLevelItemCandidate);
-        if(nextItwItem){
-            int index = parentTwItem->indexOfChild(nextItwItem);
-            parentTwItem->insertChild(index, itwItem);
-        } else {
-            parentTwItem->addChild(itwItem);
-        }
-        if(projectLoadingWithItemExpansionInfoStack.empty() ||
-           !projectLoadingWithItemExpansionInfoStack.top()){
-            if(!parentTwItem->isExpanded() && isFirstNewChildItem &&
-               (!item->hasAttribute(Item::Attached) || item->hasAttribute(Item::Unique))){
-                parentTwItem->setExpanded(true);
-            }
-        }
-        isTopLevelItemCandidate = false;
+    if(itwItem){
         parentTwItem = itwItem;
+
+    } else {
+        if(!findOrCreateLocalRootItem(false)){
+            return;
+        }
+
+        bool isVisible = false;
+
+        if(item->isOwnedBy(localRootItem) || (isRootItemVisible && (item == localRootItem))){
+            visibilityFunction_isTopLevelItemCandidate = isTopLevelItemCandidate;
+            visibilityFunction_result = true;
+            visibilityFunctions.dispatch(item);
+            isVisible = visibilityFunction_result;
+        }
+    
+        if(!isVisible){
+            if(!isTopLevelItemCandidate){
+                parentTwItem = nullptr;
+            }
+        } else {
+            itwItem = new ItwItem(item, this);
+            bool isFirstNewChildItem = parentTwItem->childCount() == 0;
+            auto nextItwItem = findNextItwItem(item, isTopLevelItemCandidate);
+            if(nextItwItem){
+                int index = parentTwItem->indexOfChild(nextItwItem);
+                parentTwItem->insertChild(index, itwItem);
+            } else {
+                parentTwItem->addChild(itwItem);
+            }
+            if(projectLoadingWithItemExpansionInfoStack.empty() ||
+               !projectLoadingWithItemExpansionInfoStack.top()){
+                if(!parentTwItem->isExpanded() && isFirstNewChildItem &&
+                   (!item->hasAttribute(Item::Attached) || item->hasAttribute(Item::Unique))){
+                    parentTwItem->setExpanded(true);
+                }
+            }
+            isTopLevelItemCandidate = false;
+            parentTwItem = itwItem;
+        }
     }
 
     if(parentTwItem){
@@ -1475,6 +1471,12 @@ bool ItemTreeWidget::Impl::pasteItems(bool doCheckPositionAcceptance)
 }
 
 
+ItemList<Item> ItemTreeWidget::getCopiedItems()
+{
+    return impl->copiedItems;
+}
+
+
 bool ItemTreeWidget::checkCuttable(Item* item) const
 {
     return !item->hasAttribute(Item::Attached);
@@ -1718,7 +1720,8 @@ void ItemTreeWidget::Impl::setItwItemSelected(ItwItem* itwItem, bool on)
 
 void ItemTreeWidget::Impl::toggleItwItemCheck(ItwItem* itwItem, int checkId, bool on)
 {
-    if(on != itwItem->checkState(checkId + 1)){
+    auto state = itwItem->checkState(checkId + 1);
+    if(((state != Qt::Checked) && on) || ((state != Qt::Unchecked) && !on)){
         itwItem->setCheckState(checkId + 1, on ? Qt::Checked : Qt::Unchecked);
     }
 }
@@ -1822,6 +1825,7 @@ void ItemTreeWidget::Impl::keyPressEvent(QKeyEvent* event)
             break;
             
         case Qt::Key_R:
+            unifiedEditHistory->flushNewRecordBuffer();
             for(auto& item : getSelectedItems()){
                 item->reload();
             }

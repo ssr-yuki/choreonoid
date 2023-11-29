@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "PythonPlugin.h"
 #include "PythonConsoleView.h"
 #include "PythonScriptItem.h"
@@ -205,7 +201,7 @@ void PythonPlugin::Impl::onInputFileOptionsParsed(std::vector<std::string>& inpu
     auto iter = inputFiles.begin();
     while(iter != inputFiles.end()){
         if(filesystem::path(*iter).extension().string() == ".py"){
-            executeScriptFileOnStartup(*iter);
+            executeScriptFileOnStartup(toUTF8(*iter));
             iter = inputFiles.erase(iter);
         } else {
             ++iter;
@@ -224,7 +220,7 @@ void PythonPlugin::Impl::onSigOptionsParsed(boost::program_options::variables_ma
         for(auto& script : v["python-item"].as<vector<string>>()){
             PythonScriptItemPtr item = new PythonScriptItem;
             auto rootItem = RootItem::instance();
-            if(item->load(script, rootItem)){
+            if(item->load(toUTF8(script), rootItem)){
                 rootItem->addChildItem(item);
             }
             item->setChecked(true);
@@ -236,15 +232,18 @@ void PythonPlugin::Impl::onSigOptionsParsed(boost::program_options::variables_ma
 void PythonPlugin::Impl::executeScriptFileOnStartup(const string& scriptFile)
 {
     MessageView::instance()->putln(format(_("Executing python script \"{}\" ..."), scriptFile));
-    executor().execFile(scriptFile);
-    if(!executor().hasException()){
+    
+    auto& exec = executor();
+    exec.execFile(scriptFile);
+    if(!exec.hasException() || exec.isTerminated()){
         MessageView::instance()->putln(_("The script finished."));
     } else {
         MessageView::instance()->putln(_("Failed to run the python script."), MessageView::Error);
         python::gil_scoped_acquire lock;
         MessageView::instance()->put(executor().exceptionText());
-        App::checkErrorAndExitIfTestMode();
     }
+
+    App::checkErrorAndExitIfTestMode();
 }
 
 
@@ -282,7 +281,7 @@ bool PythonPlugin::Impl::initializeInterpreter()
       set using C functions.
     */	
 #ifdef _WIN32
-    python::module env = python::module::import("os").attr("environ");
+    python::object env = python::module::import("os").attr("environ");
     env["PATH"] = python::str(executableDir() + ";" + std::string(python::str(env["PATH"])));
 #endif
 

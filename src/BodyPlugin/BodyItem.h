@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #ifndef CNOID_BODY_PLUGIN_BODY_ITEM_H
 #define CNOID_BODY_PLUGIN_BODY_ITEM_H
 
@@ -12,6 +7,7 @@
 #include <cnoid/LocatableItem>
 #include <cnoid/RenderableItem>
 #include <cnoid/stdx/optional>
+#include <memory>
 #include "exportdecl.h"
 
 namespace cnoid {
@@ -23,7 +19,8 @@ class InverseKinematics;
 class PinDragIK;
 class PenetrationBlocker;
 class OperableSceneBody;
-class ItemFileIO;
+class BodyItemBodyFileIO;
+class GeneralSceneFileImporterBase;
 
 class CNOID_EXPORT BodyItem : public Item, public LocatableItem, public RenderableItem
 {
@@ -32,10 +29,19 @@ public:
 
     // The following functions are Implemented in BodyItemFileIO.cpp
     static void registerBodyItemFileIoSet(ItemManager* im);
-    //! The actual type of the IO object returned by this function is BodyItemBodyFileIO.
-    static ItemFileIO* bodyFileIO();
-    static ItemFileIO* meshFileIO();
-        
+
+    /**
+       \return An ItemFileIO object for loading and saving a body file.
+       \note BodyItemBodyFileIO is defined in the <cnoid/BodyItemFileIO> header.
+    */
+    static BodyItemBodyFileIO* bodyFileIO();
+
+    /**
+       \return An ItemFileIO object for loading a mesh file as a body.
+       \note GeneralSceneFileImporterBase is defined in the <cnoid/GeneralSceneFileImporterBase> header.
+    */
+    static GeneralSceneFileImporterBase* meshFileIO();
+
     BodyItem();
     BodyItem(const std::string& name);
     virtual ~BodyItem();
@@ -59,11 +65,11 @@ public:
     bool attachToParentBody(bool doNotifyUpdate = true);    
 
     // The current parent body can temporarily be changed by this function
-    //void setTemporalParentBodyItem(BodyItem* parentBodyItem);
+    //void setTemporaryParentBodyItem(BodyItem* parentBodyItem);
     // The parent body item defined by the parent-child relationship in the item tree is restored
     // if the relationship exists. Otherwise, the parent body item is cleared.
     //void resetParentBodyItem();
-        
+
     void moveToOrigin();
     enum PresetPoseID { INITIAL_POSE, STANDARD_POSE };
     void setPresetPose(PresetPoseID id);
@@ -154,6 +160,8 @@ public:
     
     void clearCollisions();
 
+    typedef std::shared_ptr<CollisionLinkPair> CollisionLinkPairPtr;
+    
     std::vector<CollisionLinkPairPtr>& collisions() { return collisions_; }
     const std::vector<CollisionLinkPairPtr>& collisions() const { return collisions_; }
     std::vector<bool>& collisionLinkBitSet() { return collisionLinkBitSet_; }
@@ -172,7 +180,7 @@ public:
     void setZmp(const Vector3& zmp);
     void editZmp(const Vector3& zmp);
 
-    enum PositionType { CM_PROJECTION, HOME_COP, RIGHT_HOME_COP, LEFT_HOME_COP, ZERO_MOMENT_POINT };
+    enum PositionType { CM_PROJECTION, HOME_COP, LEFT_HOME_COP, RIGHT_HOME_COP, ZERO_MOMENT_POINT };
             
     stdx::optional<Vector3> getParticularPosition(PositionType posType);
 
@@ -181,10 +189,28 @@ public:
     // LocatableItem function
     virtual LocationProxyPtr getLocationProxy() override;
     
-    bool isLocationEditable() const;
-    void setLocationEditable(bool on);
+    bool isLocationLocked() const;
+    void setLocationLocked(bool on);
     LocationProxyPtr createLinkLocationProxy(Link* link);
 
+    class ContinuousKinematicUpdateRef : public Referenced
+    {
+    private:
+        ContinuousKinematicUpdateRef(BodyItem* item);
+        ~ContinuousKinematicUpdateRef();
+        weak_ref_ptr<BodyItem> bodyItemRef;
+        friend class BodyItem;
+    };
+    typedef ref_ptr<ContinuousKinematicUpdateRef> ContinuousKinematicUpdateEntry;
+
+    ContinuousKinematicUpdateEntry startContinuousKinematicUpdate();
+    bool isDoingContinuousKinematicUpdate() const { return continuousKinematicUpdateCounter > 0; }
+    /**
+       \note The sigUpdated signal is not emitted when the corresponding state changed
+       becasue this is not a permenent state.
+    */
+    SignalProxy<void(bool on)> sigContinuousKinematicUpdateStateChanged();
+    
     // RenderableItem function
     virtual SgNode* getScene() override;
 
@@ -198,6 +224,26 @@ public:
 
     virtual bool store(Archive& archive) override;
     virtual bool restore(const Archive& archive) override;
+
+    bool isBeingRestored() const;
+
+    /**
+       This function can be used to notify the system of update done by an item in the sub tree
+       during restoring the body item.
+    */
+    void requestUpdateNotificationOnSubTreeRestored();
+
+    /**
+       This function can be used to restore the non-root link states again when the link
+       structure is modified by an item in the sub tree such as LinkOverwriteItem
+       during restoring the body item.
+    */
+    void requestNonRootLinkStatesRestorationOnSubTreeRestored();
+
+    // For projct packing
+    void getDependentFiles(std::vector<std::string>& out_files);
+    void relocateDependentFiles(
+        std::function<std::string(const std::string& path)> getRelocatedFilePath);
     
     class Impl;
 
@@ -211,6 +257,7 @@ protected:
             
 private:
     Impl* impl;
+    int continuousKinematicUpdateCounter;
     bool isAttachedToParentBody_;
     bool isVisibleLinkSelectionMode_;
     std::vector<CollisionLinkPairPtr> collisions_;

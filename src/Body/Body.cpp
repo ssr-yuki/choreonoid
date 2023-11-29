@@ -1,8 +1,3 @@
-/**
-   \file
-   \author Shin'ichiro Nakaoka
-*/
-
 #include "Body.h"
 #include "BodyHandler.h"
 #include "BodyCustomizerInterface.h"
@@ -19,6 +14,8 @@ namespace {
 
 const bool PUT_DEBUG_MESSAGE = true;
 
+constexpr int MainEndLinkGuessBufSize = 10;
+
 #ifndef uint
 typedef unsigned int uint;
 #endif
@@ -30,6 +27,15 @@ struct BodyHandleEntity {
 typedef std::map<std::string, LinkPtr> NameToLinkMap;
 typedef std::map<std::string, Device*> DeviceNameMap;
 typedef std::map<std::string, ReferencedPtr> CacheMap;
+
+struct MultiplexInfo : public Referenced
+{
+    Body* masterBody;
+    Body* lastBody;
+    int numBodies;
+    vector<BodyPtr> bodyCache;
+};
+typedef ref_ptr<MultiplexInfo> MultiplexInfoPtr;
 
 double getCurrentTime()
 {
@@ -61,8 +67,12 @@ public:
     BodyHandleEntity bodyHandleEntity;
     BodyHandle bodyHandle;
 
+    MultiplexInfoPtr multiplexInfo;
+    Signal<void(bool on)> sigExistenceChanged;
+        
     Impl(Body* self);
     void initialize(Body* self, Link* rootLink);
+    void guessMainEndLinkSub(Link* link, Link* rootLink, int dof, Link** linkOfDof);
     void removeDeviceFromDeviceNameMap(Device* device);
     bool installCustomizer(BodyCustomizerInterface* customizerInterface);
 };
@@ -111,6 +121,7 @@ void Body::Impl::initialize(Body* self, Link* rootLink)
 
     self->rootLink_ = nullptr;
     self->setRootLink(rootLink);
+    self->existence_ = true;
 }
 
 
@@ -137,9 +148,15 @@ void Body::copyFrom(const Body* org, CloneMap* cloneMap)
     }
 
     for(auto& orgExtraJoint : org->extraJoints_){
-        ExtraJoint extraJoint(orgExtraJoint);
+        ExtraJointPtr extraJoint = new ExtraJoint(orgExtraJoint->type());
         for(int j=0; j < 2; ++j){
-            extraJoint.setLink(j, link(orgExtraJoint.link(j)->index()));
+            if(auto orgLink = orgExtraJoint->link(j)){
+                extraJoint->setLink(j, link(orgLink->index()));
+            }
+            extraJoint->setLocalPosition(j, orgExtraJoint->localPosition(j));
+        }
+        if(auto info = orgExtraJoint->info()){
+            extraJoint->resetInfo(info->cloneMapping());
         }
         extraJoints_.push_back(extraJoint);
     }
@@ -147,7 +164,19 @@ void Body::copyFrom(const Body* org, CloneMap* cloneMap)
     if(!org->impl->handlers.empty()){
         impl->handlers.reserve(org->impl->handlers.size());
         for(auto& handler : org->impl->handlers){
-            impl->handlers.push_back(handler->clone());
+            if(auto handlerClone = handler->clone()){
+                handlerClone->body_ = this;
+                handlerClone->filename_ = handler->filename_;
+                if(handlerClone->initialize(this)){
+                    impl->handlers.push_back(handlerClone);
+                } else {
+                    delete handlerClone;
+                }
+            } else if(auto handlerClone = handler->clone(this)){ // For backward compatibility
+                handlerClone->body_ = this;
+                handlerClone->filename_ = handler->filename_;
+                impl->handlers.push_back(handlerClone);
+            }
         }
     }
 
@@ -428,6 +457,43 @@ Link* Body::lastSerialLink() const
         link = link->child();
     }
     return link;
+}
+
+
+//  Find a maximum DOF link whose DOF is different from any other links.
+Link* Body::guessMainEndLink() const
+{
+    Link* linkOfDof[MainEndLinkGuessBufSize];
+    for(int i=0; i < MainEndLinkGuessBufSize; ++i){
+        linkOfDof[i] = nullptr;
+    }
+    
+    impl->guessMainEndLinkSub(rootLink_, rootLink_, 0, linkOfDof);
+
+    for(int i = MainEndLinkGuessBufSize - 1; i > 0; --i){
+        auto link = linkOfDof[i];
+        if(link && link != rootLink_){
+            return link;
+        }
+    }
+    
+    return nullptr;
+}
+
+
+void Body::Impl::guessMainEndLinkSub(Link* link, Link* rootLink, int dof, Link** linkOfDof)
+{
+    if(!linkOfDof[dof]){
+        linkOfDof[dof] = link;
+    } else {
+        linkOfDof[dof] = rootLink;
+    }
+    ++dof;
+    if(dof < MainEndLinkGuessBufSize){
+        for(Link* child = link->child(); child; child = child->sibling()){
+            guessMainEndLinkSub(child, rootLink, dof, linkOfDof);
+        }
+    }
 }
 
 
@@ -776,6 +842,80 @@ void Body::calcTotalMomentum(Vector3& out_P, Vector3& out_L)
 void Body::setCurrentTimeFunction(std::function<double()> func)
 {
     currentTimeFunction = func;
+}
+
+
+void Body::setExistence(bool on)
+{
+    if(on != existence_){
+        existence_ = on;
+        impl->sigExistenceChanged(on);
+    }
+}
+
+
+SignalProxy<void(bool on)> Body::sigExistenceChanged()
+{
+    return impl->sigExistenceChanged;
+}
+
+
+int Body::getNumMultiplexBodies() const
+{
+    return impl->multiplexInfo->numBodies;
+}
+
+
+Body* Body::addMultiplexBody()
+{
+    if(!impl->multiplexInfo){
+        impl->multiplexInfo = new MultiplexInfo;
+        impl->multiplexInfo->masterBody = this;
+        impl->multiplexInfo->lastBody = this;
+        impl->multiplexInfo->numBodies = 1;
+    }
+
+    BodyPtr newBody;
+    if(impl->multiplexInfo->bodyCache.empty()){
+        newBody = clone();
+    } else {
+        newBody = impl->multiplexInfo->bodyCache.back();
+        // \todo copy all the link positions
+        newBody->rootLink()->setPosition(rootLink()->position());
+        impl->multiplexInfo->bodyCache.pop_back();
+    }
+        
+    newBody->impl->multiplexInfo = impl->multiplexInfo;
+
+    impl->multiplexInfo->lastBody->nextMultiplexBody_ = newBody;
+    impl->multiplexInfo->lastBody = newBody;
+    impl->multiplexInfo->numBodies++;
+    
+    return newBody;
+}
+
+
+bool Body::doClearMultiplexBodies(bool doClearCache)
+{
+    int count = 0;
+    
+    BodyPtr nextBody = nextMultiplexBody_;
+    while(nextBody){
+        impl->multiplexInfo->bodyCache.push_back(nextBody);
+        nextBody->impl->multiplexInfo.reset();
+        BodyPtr nextNextBody = nextBody->nextMultiplexBody_;
+        nextBody->nextMultiplexBody_.reset();
+        nextBody = nextNextBody;
+        ++count;
+    }
+    nextMultiplexBody_.reset();
+
+    if(impl->multiplexInfo){
+        impl->multiplexInfo->lastBody = this;
+        impl->multiplexInfo->numBodies -= count;
+    }
+
+    return count != 0;
 }
 
 

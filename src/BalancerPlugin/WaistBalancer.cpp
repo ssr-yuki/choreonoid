@@ -1,7 +1,3 @@
-/**
-   @author Shin'ichiro Nakaoka
-*/
-
 #include "WaistBalancer.h"
 #include <cnoid/PoseProvider>
 #include <cnoid/LeggedBodyHelper>
@@ -17,20 +13,22 @@ using namespace cnoid;
 
 namespace {
 
-    const bool DoVerticalAccCompensation = true;
-    
+const bool DoVerticalAccCompensation = true;
+
 #if defined(_MSC_VER) && _MSC_VER < 1800
-    inline long lround(double x) {
-        return static_cast<long>((x > 0.0) ? floor(x + 0.5) : ceil(x -0.5));
-    }
+inline long lround(double x) {
+    return static_cast<long>((x > 0.0) ? floor(x + 0.5) : ceil(x -0.5));
+}
 #endif
 
-    struct Zelements {
-        vector<Vector3>& array;
-        int offset;
-        Zelements(vector<Vector3>& array, int offset) : array(array), offset(offset) { }
-        double& operator[](int index) { return array[index + offset].z(); }
-    };
+struct Zelements
+{
+    vector<Vector3>& array;
+    int offset;
+    Zelements(vector<Vector3>& array, int offset) : array(array), offset(offset) { }
+    double& operator[](int index) { return array[index + offset].z(); }
+};
+
 }
 
 
@@ -48,9 +46,16 @@ WaistBalancer::WaistBalancer()
     dynamicsTimeRatio = 1.0;
     isBoundaryCmAdjustmentEnabled = false;
     isWaistHeightRelaxationEnabled = false;
+    zmpOutputMode = OriginalZmpInput;
 
     setBoundarySmoother(QUINTIC_SMOOTHER, 0.5);
     setFullTimeRange();
+}
+
+
+void WaistBalancer::setMessageOutputStream(std::ostream& os)
+{
+    os_ = &os;
 }
 
 
@@ -199,6 +204,12 @@ void WaistBalancer::setInitialWaistTrajectoryMode(int mode)
 void WaistBalancer::enableWaistHeightRelaxation(bool on)
 {
     isWaistHeightRelaxationEnabled = on;
+}
+
+
+void WaistBalancer::setZmpOutputMode(int mode)
+{
+    zmpOutputMode = mode;
 }
 
 
@@ -380,7 +391,7 @@ bool WaistBalancer::calcBoundaryCmAdjustmentTrajectorySub(int begin, int directi
             Vector3 p = r * translation;
             boundaryCmAdjustmentTranslations[frame] = p;
             totalCmTranslations[frame] = p;
-			++i;
+            ++i;
         }
     }
 
@@ -419,10 +430,10 @@ bool WaistBalancer::calcWaistTranslationWithCmAboveZmp
 
         provider->getBaseLinkPosition(baseLink->T());
         
-        provider->getJointPositions(jointPositions);
+        provider->getJointDisplacements(jointDisplacements);
         for(int j=0; j < n; ++j){
             Link* joint = body_->joint(j);
-            const auto& q = jointPositions[j];
+            const auto& q = jointDisplacements[j];
             joint->q() = q ? *q : 0.0;
         }
         fkTraverse.calcForwardKinematics(true);
@@ -461,14 +472,15 @@ void WaistBalancer::initBodyKinematics(int frame, const Vector3& cmTranslation)
     fkTraverse.find(baseLink);
 
     const int n = body_->numJoints();
-    provider->getJointPositions(jointPositions);
+    provider->getJointDisplacements(jointDisplacements);
     for(int i=0; i < n; ++i){
         Link* joint = body_->joint(i);
-        const auto& q = jointPositions[i];
+        const auto& q = jointDisplacements[i];
         joint->q() = q ? *q : 0.0;
         joint->dq() = 0.0;
     }
 
+    desiredZmp = *provider->ZMP();
     updateCmAndZmp(frame);
 }
 
@@ -484,7 +496,8 @@ void WaistBalancer::updateCmAndZmp(int frame)
         p.x() = -waistLink->p().x();
         p.y() = -waistLink->p().y();
         p.z() = 0.0;
-        desiredZmp = *provider->ZMP();
+
+        // The desired ZMP is assumed to be the current time frame value.
         zmpDiff = desiredZmp;
 
     } else {
@@ -513,12 +526,11 @@ void WaistBalancer::updateCmAndZmp(int frame)
             }
         }
 
+        // The desired ZMP is assumed to be the current time frame value.
         zmp.x() = (dP.x() * desiredZmp.z() - dL.y() + mg * cm.x()) / (dP.z() + mg);
         zmp.y() = (dP.y() * desiredZmp.z() + dL.x() + mg * cm.y()) / (dP.z() + mg);
         zmp.z() = desiredZmp.z();
         zmpDiff = desiredZmp - zmp;
-
-        desiredZmp = *provider->ZMP();
     }
 }
 
@@ -550,10 +562,10 @@ bool WaistBalancer::updateBodyKinematics1(int frame)
             baseLink->v() = (T_next.translation() - baseLink->p()) / dt;
             baseLink->w() = omegaFromRot(baseLink->R().transpose() * T_next.linear()) / dt;
 
-            provider->getJointPositions(jointPositions);
+            provider->getJointDisplacements(jointDisplacements);
             for(int i=0; i < n; ++i){
                 Link* joint = body_->joint(i);
-                const auto& q = jointPositions[i];
+                const auto& q = jointDisplacements[i];
                 if(q){
                     joint->dq() = (*q - joint->q()) / dt;
                 } else {
@@ -572,15 +584,17 @@ bool WaistBalancer::updateBodyKinematics1(int frame)
 void WaistBalancer::updateBodyKinematics2()
 {
     const int n = body_->numJoints();
-    provider->getJointPositions(jointPositions);
+    provider->getJointDisplacements(jointDisplacements);
     for(int i=0; i < n; ++i){
         Link* joint = body_->joint(i);
-        const auto& q = jointPositions[i];
+        const auto& q = jointDisplacements[i];
         if(q){
             joint->q() = *q;
         }
     }
     provider->getBaseLinkPosition(baseLink->T());
+
+    desiredZmp = *provider->ZMP();
 }
 
 
@@ -693,10 +707,10 @@ void WaistBalancer::initWaistHeightRelaxation()
         os() << _("Waist height relaxation cannot be applied because the robot is not a biped robot.") << endl;
 
     } else {
-        rightKneePitchJoint = legged->kneePitchJoint(0);
-        leftKneePitchJoint = legged->kneePitchJoint(1);
-
-        if(!rightKneePitchJoint || !leftKneePitchJoint){
+        for(int i=0; i < 2; ++i){
+            kneePitchJoints[i] = legged->kneePitchJoint(i);
+        }
+        if(!kneePitchJoints[0] || !kneePitchJoints[1]){
             os() << _("Waist height relaxation cannot be applied because the knee joints are not specified.") << endl;
 
         } else {
@@ -741,7 +755,7 @@ void WaistBalancer::relaxWaistHeightTrajectory()
             T_waist.translation() += dp;
             bool solved =
                 waistFeetIK.calcInverseKinematics(T_waist) &&
-                (rightKneePitchJoint->q() > 0.3 && leftKneePitchJoint->q() > 0.3);
+                (kneePitchJoints[0]->q() > 0.3 && kneePitchJoints[1]->q() > 0.3);
 
             if(solved){
                 if(dz == 0.0){
@@ -841,33 +855,35 @@ bool WaistBalancer::applyCmTranslations(BodyMotion& motion, bool putAllLinkPosit
     }
     
     bool completed = true;
-
+    const int numLinkPositions = (putAllLinkPositions ? body_->numLinks() : 1);
     const int numJoints = body_->numJoints();
-    const int numLinksToPut = (putAllLinkPositions ? body_->numLinks() : 1);
-    
-    motion.setDimension(endingFrame + 1, numJoints, numLinksToPut, true);
-
-    MultiValueSeq& qseq = *motion.jointPosSeq();
-    MultiSE3Seq& pseq = *motion.linkPosSeq();
+    auto pseq = motion.positionSeq();
+    pseq->setNumLinkPositionsHint(numLinkPositions);
+    pseq->setNumJointDisplacementsHint(numJoints);
+    motion.setNumFrames(endingFrame + 1, true);
     auto zmpseq = getOrCreateZMPSeq(motion);
     zmpseq->setRootRelative(false);
 
     initBodyKinematics(beginningFrame, totalCmTranslations[beginningFrame]);
 
-    for(int frame = beginningFrame; frame <= endingFrame; ++frame){
+    for(int frameIndex = beginningFrame; frameIndex <= endingFrame; ++frameIndex){
 
-        completed &= updateBodyKinematics1(frame); 
+        completed &= updateBodyKinematics1(frameIndex); 
 
-        MultiValueSeq::Frame qs = qseq.frame(frame);
+        auto& frame = pseq->allocateFrame(frameIndex);
+        for(int i=0; i < numLinkPositions; ++i){
+            Link* link = body_->link(i);
+            frame.linkPosition(i).set(link->T());
+        }
+        auto displacements = frame.jointDisplacements();
         for(int i=0; i < numJoints; ++i){
-            qs[i] = body_->joint(i)->q();
+            displacements[i] = body_->joint(i)->q();
         }
 
-        zmpseq->at(frame) = zmp;
-        
-        for(int i=0; i < numLinksToPut; ++i){
-            Link* link = body_->link(i);
-            pseq.at(frame, i).set(link->T());
+        if(zmpOutputMode == ZmpForAdjustedMotion){
+            zmpseq->at(frameIndex) = zmp;
+        } else {
+            zmpseq->at(frameIndex) = desiredZmp;
         }
 
         updateBodyKinematics2();

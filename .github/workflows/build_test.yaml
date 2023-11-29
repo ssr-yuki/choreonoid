@@ -19,6 +19,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: update
+        run: sudo apt-get update && sudo apt -y upgrade
+
       - name: Install dependencies of choreonoid
         run: sh misc/script/install-requisites-${{ matrix.ubuntu }}.sh
 

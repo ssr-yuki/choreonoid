@@ -15,12 +15,12 @@ jobs:
     runs-on: ${{ matrix.ubuntu }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: update
-        run: sudo apt-get update && sudo apt -y upgrade
+      - name: Update and upgrade
+        run: sudo apt-get update && sudo apt-get -y upgrade
 
       - name: Install dependencies of choreonoid (only necessary for Ubuntu on Github actions)
         run: sh .github/script/install-requisites-${{ matrix.ubuntu }}-for-github-actions.sh
